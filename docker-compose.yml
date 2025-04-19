@@ -1,0 +1,105 @@
+services:
+  auth_service:
+    build:
+      context: ./authService
+      dockerfile: Dockerfile
+    ports:
+      - "3001:3001"
+    environment:
+      DB_NAME: ${MYSQL_DATABASE}
+      DB_USER: ${MYSQL_USER}
+      DB_PASSWORD: ${MYSQL_PASSWORD}
+      DB_HOST: ${MYSQL_HOST}
+      DB_PORT: ${MYSQL_PORT}
+      USER_SERVICE_KAFKA_TOPIC: ${USER_SERVICE_KAFKA_TOPIC}
+      KAFKA_HOST: ${KAFKA_HOST}
+      KAFKA_PORT: ${KAFKA_PORT}
+    networks:
+      - akmalstore_net
+    env_file:
+      - .env
+
+  user_service:
+    build:
+      context: ./user_service
+      dockerfile: Dockerfile
+    ports:
+      - "3002:3002"
+    environment:
+#      DB_NAME: ${MYSQL_DATABASE}
+#      DB_USER: ${MYSQL_USER}
+#      DB_PASSWORD: ${MYSQL_PASSWORD}
+#      DB_HOST: ${MYSQL_HOST}
+#      DB_PORT: ${MYSQL_PORT}
+      USER_SERVICE_KAFKA_TOPIC: ${USER_SERVICE_KAFKA_TOPIC}
+      USER_SERVICE_KAFKA_GROUP_ID: ${USER_SERVICE_KAFKA_GROUP_ID}
+      KAFKA_HOST: ${KAFKA_HOST}
+      KAFKA_PORT: ${KAFKA_PORT}
+    networks:
+      - akmalstore_net
+    env_file:
+      - .env
+
+  db:
+    image: mysql:8.4
+    container_name: db_mysql
+    restart: always
+    ports:
+      - "${MYSQL_FORWARDED_PORT}:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    volumes:
+      - db_data:/var/lib/mysql
+    networks:
+      - akmalstore_net
+    env_file:
+      - .env
+
+  kafka:
+    image: apache/kafka:3.9.0
+    hostname: broker
+    container_name: kafka
+    networks:
+      - akmalstore_net
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://broker:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_NODE_ID: 1
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@broker:29093
+      KAFKA_LISTENERS: PLAINTEXT://broker:29092,CONTROLLER://broker:29093,PLAINTEXT_HOST://0.0.0.0:9092
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LOG_DIRS: /tmp/kraft-combined-logs
+      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: kafka-ui
+    networks:
+      - akmalstore_net
+    ports:
+      - "8080:8080"
+    depends_on:
+      - kafka
+    environment:
+      TZ: Asia/Jakarta
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAP_SERVERS: kafka:29092
+
+volumes:
+  db_data:
+
+networks:
+  akmalstore_net:
+    driver: bridge
