@@ -1,4 +1,4 @@
-module github.com/akmmp241/topup-microservice/user-service
+module github.com/akmmp241/topupstore-microservice/user-service
 
 go 1.23.4
 

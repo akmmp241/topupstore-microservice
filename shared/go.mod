@@ -1,4 +1,4 @@
-module github.com/akmmp241/topup-microservice/shared
+module github.com/akmmp241/topupstore-microservice/shared
 
 go 1.23.4
 

@@ -1,4 +1,4 @@
-module github.com/akmmp241/topup-microservice/auth-service
+module github.com/akmmp241/topupstore-microservice/auth-service
 
 go 1.23.4
 
@@ -11,6 +11,7 @@ require (
 
 require (
 	filippo.io/edwards25519 v1.1.0 // indirect
+	github.com/akmmp241/topupstore-microservice v0.0.0-20250422012830-fc19e96f86ba // indirect
 	github.com/andybalholm/brotli v1.1.1 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.8 // indirect
 	github.com/go-playground/locales v0.14.1 // indirect
