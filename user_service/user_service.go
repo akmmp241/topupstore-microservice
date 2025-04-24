@@ -94,14 +94,22 @@ func (s *UserService) handleCreateUser(c *fiber.Ctx) error {
 }
 
 func (s *UserService) handleGetUser(c *fiber.Ctx) error {
-	userID := c.Params("id")
+	userID := c.Query("id")
+	userEmail := c.Query("email")
 
-	if userID == "" {
-		return fiber.NewError(fiber.StatusBadRequest, "User ID is required")
+	if userEmail == "" && userID == "" {
+		return fiber.NewError(fiber.StatusBadRequest, "User ID or email is required")
+	} else if userEmail != "" && userID != "" {
+		return fiber.NewError(fiber.StatusBadRequest, "Only one of user ID or email should be provided")
 	}
 
-	query := "SELECT id, name, email, phone_number, created_at, updated_at FROM users WHERE id = ?"
-	rows, err := s.DB.QueryContext(s.Ctx, query, userID)
+	query := "SELECT id, name, email, phone_number, email_verification_token, email_verified_at, created_at, updated_at FROM users WHERE ? = ?"
+	column := "id"
+	if userEmail != "" {
+		column = "email"
+	}
+
+	rows, err := s.DB.QueryContext(s.Ctx, query, column, userID)
 	if err != nil {
 		slog.Error("Error occurred while querying user", "err", err)
 		return err
@@ -113,7 +121,7 @@ func (s *UserService) handleGetUser(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusNotFound, "User not found")
 	}
 
-	err = rows.Scan(&user.Id, &user.Name, &user.Email, &user.PhoneNumber, &user.CreatedAt, &user.UpdatedAt)
+	err = rows.Scan(&user.Id, &user.Name, &user.Email, &user.PhoneNumber, &user.EmailVerificationToken, &user.EmailVerifiedAt, &user.CreatedAt, &user.UpdatedAt)
 	if err != nil {
 		slog.Error("Error occurred while scanning user", "err", err)
 		return err
