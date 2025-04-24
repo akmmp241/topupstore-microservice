@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"github.com/gofiber/fiber/v2"
 	"github.com/golang-jwt/jwt/v5"
+	"log/slog"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -19,10 +21,15 @@ type ServiceCustomClaims struct {
 }
 
 func JWTServiceMiddleware(c *fiber.Ctx) error {
-	jwtToken := GetTokenFromRequest(c)
+	jwtToken, err := GetTokenFromRequest(c)
+	if err != nil {
+		slog.Error("Error getting token from request", "err", err)
+		return fiber.NewError(fiber.StatusUnauthorized, err.Error())
+	}
 
 	_, token, err := ValidateJWTForService(jwtToken)
 	if err != nil || !token.Valid {
+		slog.Error("Error validating token", "err", err)
 		return fiber.NewError(fiber.StatusUnauthorized, "Invalid token")
 	}
 
@@ -63,10 +70,15 @@ func ValidateJWTForService(tokenString string) (*ServiceCustomClaims, *jwt.Token
 	return claims, token, nil
 }
 
-func GetTokenFromRequest(c *fiber.Ctx) string {
-	jwtToken := c.Get("Authorization")
+func GetTokenFromRequest(c *fiber.Ctx) (string, error) {
+	// Extract JWT from the Authorization header
+	authHeader := c.Get("Authorization")
+	if !strings.HasPrefix(authHeader, "Bearer ") {
+		return "", fmt.Errorf("missing or invalid Authorization header")
+	}
+	token := strings.TrimPrefix(authHeader, "Bearer ")
 
-	return jwtToken
+	return token, nil
 }
 
 func getServiceSecretKey() []byte {
