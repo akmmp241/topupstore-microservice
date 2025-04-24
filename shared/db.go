@@ -1,4 +1,4 @@
-package main
+package shared
 
 import (
 	"database/sql"
@@ -27,4 +27,17 @@ func GetConnection() *sql.DB {
 	db.SetConnMaxIdleTime(60 * time.Minute)
 
 	return db
+}
+
+func CommitOrRollback(tx *sql.Tx, err error) error {
+	if err != nil {
+		if rollbackErr := tx.Rollback(); rollbackErr != nil {
+			return rollbackErr
+		}
+		return err
+	}
+	if commitErr := tx.Commit(); commitErr != nil {
+		return commitErr
+	}
+	return nil
 }
