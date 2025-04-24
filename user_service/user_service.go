@@ -8,6 +8,7 @@ import (
 	"github.com/go-playground/validator/v10"
 	"github.com/go-sql-driver/mysql"
 	"github.com/gofiber/fiber/v2"
+	"golang.org/x/crypto/bcrypt"
 	"log/slog"
 	"strings"
 )
@@ -44,6 +45,13 @@ func (s *UserService) handleCreateUser(c *fiber.Ctx) error {
 	if err != nil && errors.As(err, &validator.ValidationErrors{}) {
 		return shared.NewFailedValidationError(*registerRequest, err.(validator.ValidationErrors))
 	}
+
+	// Hash the password
+	password, err := bcrypt.GenerateFromPassword([]byte(registerRequest.Password), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+	registerRequest.Password = string(password)
 
 	tx, err := s.DB.Begin()
 	if err != nil {
@@ -113,15 +121,8 @@ func (s *UserService) handleGetUser(c *fiber.Ctx) error {
 
 	return c.JSON(fiber.Map{
 		"message": "User retrieved successfully",
-		"data": fiber.Map{
-			"id":           user.Id,
-			"name":         user.Name,
-			"email":        user.Email,
-			"phone_number": user.PhoneNumber,
-			"created_at":   user.CreatedAt,
-			"updated_at":   user.UpdatedAt,
-		},
-		"errors": nil,
+		"data":    user,
+		"errors":  nil,
 	})
 
 }
