@@ -13,8 +13,8 @@ func main() {
 
 	bootstrapServer := kafkaHost + ":" + kafkaPort
 
-	slog.Info("Starting Kafka producer with bootstrap server:", bootstrapServer)
-	slog.Info("Starting HTTP server on port:", PORT)
+	slog.Info("Starting Kafka producer", "bootstrap-server", bootstrapServer)
+	slog.Info("Starting HTTP server on port:", "port", PORT)
 	producer := NewKafkaProducer(bootstrapServer)
 	(NewAppServer(producer)).Run(PORT)
 }

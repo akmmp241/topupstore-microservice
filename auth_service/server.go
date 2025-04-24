@@ -2,6 +2,8 @@ package main
 
 import (
 	"database/sql"
+	"github.com/akmmp241/topupstore-microservice/shared"
+	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
 	"log/slog"
 	"os"
@@ -14,11 +16,15 @@ type AppServer struct {
 
 func NewAppServer(producer *KafkaProducer) *AppServer {
 	db := GetConnection()
-	server := fiber.New()
+	validate := validator.New()
+
+	server := fiber.New(fiber.Config{
+		ErrorHandler: shared.ErrorHandler,
+	})
 
 	app := server.Group("/api/auth")
 
-	authService := NewAuthService(producer)
+	authService := NewAuthService(producer, validate)
 	authService.RegisterRoutes(app)
 
 	return &AppServer{
