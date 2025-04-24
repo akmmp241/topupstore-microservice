@@ -23,12 +23,12 @@ func NewUserService(validator *validator.Validate, db *sql.DB) *UserService {
 }
 
 func (s *UserService) RegisterRoutes(router fiber.Router) {
-	internalAPI := router.Group("/user-service")
+	internalAPI := router.Group("/users")
 	internalAPI.Use(shared.JWTServiceMiddleware)
-	internalAPI.Post("/create", s.handleCreateUser)
-	internalAPI.Get("/get/:id", s.handleGetUser)
-	internalAPI.Put("/update/:id", s.handleUpdateUser)
-	internalAPI.Delete("/delete/:id", s.handleDeleteUser)
+	internalAPI.Post("/", s.handleCreateUser)
+	internalAPI.Get("/:id", s.handleGetUser)
+	internalAPI.Put("/:id", s.handleUpdateUser)
+	internalAPI.Delete("/:id", s.handleDeleteUser)
 
 	router.Get("/me", s.handleGetUser)
 }
@@ -78,7 +78,6 @@ func (s *UserService) handleCreateUser(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, "Failed to create user")
 	}
 
-	// Handle user creation
 	return c.Status(fiber.StatusCreated).JSON(fiber.Map{
 		"message": "User created successfully",
 		"data":    nil,
@@ -87,9 +86,44 @@ func (s *UserService) handleCreateUser(c *fiber.Ctx) error {
 }
 
 func (s *UserService) handleGetUser(c *fiber.Ctx) error {
-	slog.Info("Getting user")
-	// Handle getting user
-	return c.SendString("User retrieved successfully")
+	userID := c.Params("id")
+
+	if userID == "" {
+		return fiber.NewError(fiber.StatusBadRequest, "User ID is required")
+	}
+
+	query := "SELECT id, name, email, phone_number, created_at, updated_at FROM users WHERE id = ?"
+	rows, err := s.DB.QueryContext(s.Ctx, query, userID)
+	if err != nil {
+		slog.Error("Error occurred while querying user", "err", err)
+		return err
+	}
+	defer rows.Close()
+
+	var user User
+	if !rows.Next() {
+		return fiber.NewError(fiber.StatusNotFound, "User not found")
+	}
+
+	err = rows.Scan(&user.Id, &user.Name, &user.Email, &user.PhoneNumber, &user.CreatedAt, &user.UpdatedAt)
+	if err != nil {
+		slog.Error("Error occurred while scanning user", "err", err)
+		return err
+	}
+
+	return c.JSON(fiber.Map{
+		"message": "User retrieved successfully",
+		"data": fiber.Map{
+			"id":           user.Id,
+			"name":         user.Name,
+			"email":        user.Email,
+			"phone_number": user.PhoneNumber,
+			"created_at":   user.CreatedAt,
+			"updated_at":   user.UpdatedAt,
+		},
+		"errors": nil,
+	})
+
 }
 
 func (s *UserService) handleUpdateUser(c *fiber.Ctx) error {
