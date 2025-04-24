@@ -1,19 +1,17 @@
 services:
   auth_service:
     build:
-      context: auth_service
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: auth_service/Dockerfile
     ports:
       - "3001:3001"
     environment:
-      DB_NAME: ${MYSQL_DATABASE}
-      DB_USER: ${MYSQL_USER}
-      DB_PASSWORD: ${MYSQL_PASSWORD}
-      DB_HOST: ${MYSQL_HOST}
-      DB_PORT: ${MYSQL_PORT}
       USER_SERVICE_KAFKA_TOPIC: ${USER_SERVICE_KAFKA_TOPIC}
       KAFKA_HOST: ${KAFKA_HOST}
       KAFKA_PORT: ${KAFKA_PORT}
+      USER_SERVICE_HOST: ${USER_SERVICE_HOST}
+      USER_SERVICE_PORT: ${USER_SERVICE_PORT}
+      SERVICE_JWT_SECRET_KEY: ${SERVICE_JWT_SECRET_KEY}
     networks:
       - akmalstore_net
     env_file:
@@ -21,20 +19,21 @@ services:
 
   user_service:
     build:
-      context: ./user_service
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: user_service/Dockerfile
     ports:
-      - "3002:3002"
+      - ${USER_SERVICE_PORT}:${USER_SERVICE_PORT}
     environment:
-#      DB_NAME: ${MYSQL_DATABASE}
-#      DB_USER: ${MYSQL_USER}
-#      DB_PASSWORD: ${MYSQL_PASSWORD}
-#      DB_HOST: ${MYSQL_HOST}
-#      DB_PORT: ${MYSQL_PORT}
-      USER_SERVICE_KAFKA_TOPIC: ${USER_SERVICE_KAFKA_TOPIC}
-      USER_SERVICE_KAFKA_GROUP_ID: ${USER_SERVICE_KAFKA_GROUP_ID}
+      DB_NAME: ${MYSQL_DATABASE}
+      DB_USER: ${MYSQL_USER}
+      DB_PASSWORD: ${MYSQL_PASSWORD}
+      DB_HOST: ${MYSQL_HOST}
+      DB_PORT: ${MYSQL_PORT}
       KAFKA_HOST: ${KAFKA_HOST}
       KAFKA_PORT: ${KAFKA_PORT}
+      AUTH_SERVICE_HOST: ${AUTH_SERVICE_HOST}
+      AUTH_SERVICE_PORT: ${AUTH_SERVICE_PORT}
+      SERVICE_JWT_SECRET_KEY: ${SERVICE_JWT_SECRET_KEY}
     networks:
       - akmalstore_net
     env_file:
@@ -91,7 +90,8 @@ services:
     ports:
       - "8080:8080"
     depends_on:
-      - kafka
+      kafka:
+        condition: service_started
     environment:
       TZ: Asia/Jakarta
       KAFKA_CLUSTERS_0_NAME: local

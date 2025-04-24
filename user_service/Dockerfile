@@ -12,11 +12,16 @@ RUN apk add --no-cache tzdata
 
 # Set working directory and copy Go modules
 WORKDIR /build
-COPY go.mod go.sum ./
-RUN go mod download
+COPY user_service/go.mod user_service/go.sum ./
+
 
 # Copy the source code and build the app
-COPY . .
+COPY user_service/ .
+COPY shared/ /build/shared/
+
+RUN go mod edit -replace=github.com/akmmp241/topupstore-microservice/shared=/build/shared
+
+RUN go mod download
 RUN go build -o /out/build .
 
 # Final stage
