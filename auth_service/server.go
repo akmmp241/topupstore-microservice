@@ -1,7 +1,6 @@
 package main
 
 import (
-	"database/sql"
 	"github.com/akmmp241/topupstore-microservice/shared"
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
@@ -10,12 +9,10 @@ import (
 )
 
 type AppServer struct {
-	db     *sql.DB
 	server *fiber.App
 }
 
 func NewAppServer(producer *KafkaProducer) *AppServer {
-	db := GetConnection()
 	validate := validator.New()
 
 	server := fiber.New(fiber.Config{
@@ -28,7 +25,6 @@ func NewAppServer(producer *KafkaProducer) *AppServer {
 	authService.RegisterRoutes(app)
 
 	return &AppServer{
-		db:     db,
 		server: server,
 	}
 }

@@ -59,7 +59,7 @@ func (s *AuthService) handleRegister(c *fiber.Ctx) error {
 	if resp.StatusCode != fiber.StatusCreated {
 		slog.Error("User service returned non-200 status code", "code", resp.StatusCode)
 		return c.Status(resp.StatusCode).JSON(fiber.Map{
-			"message": "User service error",
+			"message": string(resp.Body),
 			"errors":  nil,
 		})
 	}
