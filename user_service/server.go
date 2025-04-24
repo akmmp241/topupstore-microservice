@@ -1,6 +1,9 @@
 package main
 
 import (
+	"github.com/akmmp241/topupstore-microservice/shared"
+	"github.com/go-playground/validator/v10"
+	_ "github.com/go-sql-driver/mysql"
 	"github.com/gofiber/fiber/v2"
 	"log/slog"
 	"os"
@@ -12,7 +15,9 @@ type AppServer struct {
 }
 
 func NewAppServer() *AppServer {
+	db := shared.GetConnection()
 	server := fiber.New()
+	validate := validator.New()
 
 	kafkaHost := os.Getenv("KAFKA_HOST")
 	kafkaPort := os.Getenv("KAFKA_PORT")
@@ -20,6 +25,11 @@ func NewAppServer() *AppServer {
 
 	groupId := os.Getenv("USER_SERVICE_KAFKA_GROUP_ID")
 	topic := os.Getenv("USER_SERVICE_KAFKA_TOPIC")
+
+	api := server.Group("/api")
+
+	userService := NewUserService(validate, db)
+	userService.RegisterRoutes(api)
 
 	consumer := NewKafkaConsumer(bootstrapServer, groupId, topic)
 
