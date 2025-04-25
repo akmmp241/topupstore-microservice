@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"github.com/akmmp241/topupstore-microservice/shared"
 	"github.com/go-playground/validator/v10"
 	"github.com/go-sql-driver/mysql"
@@ -27,7 +28,7 @@ func (s *UserService) RegisterRoutes(router fiber.Router) {
 	internalAPI := router.Group("/users")
 	internalAPI.Use(shared.JWTServiceMiddleware)
 	internalAPI.Post("/", s.handleCreateUser)
-	internalAPI.Get("/:id", s.handleGetUser)
+	internalAPI.Get("/", s.handleGetUser)
 	internalAPI.Put("/:id", s.handleUpdateUser)
 	internalAPI.Delete("/:id", s.handleDeleteUser)
 
@@ -103,15 +104,17 @@ func (s *UserService) handleGetUser(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "Only one of user ID or email should be provided")
 	}
 
-	query := "SELECT id, name, email, phone_number, email_verification_token, email_verified_at, created_at, updated_at FROM users WHERE ? = ?"
+	target := userID
 	column := "id"
 	if userEmail != "" {
 		column = "email"
+		target = userEmail
 	}
+	query := fmt.Sprintf("SELECT id, name, email, password, phone_number, email_verification_token, email_verified_at, created_at, updated_at FROM users WHERE %s = ?", column)
 
-	rows, err := s.DB.QueryContext(s.Ctx, query, column, userID)
+	rows, err := s.DB.QueryContext(s.Ctx, query, target)
 	if err != nil {
-		slog.Error("Error occurred while querying user", "err", err)
+		slog.Debug("Error occurred while querying user", "err", err)
 		return err
 	}
 	defer rows.Close()
@@ -121,10 +124,19 @@ func (s *UserService) handleGetUser(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusNotFound, "User not found")
 	}
 
-	err = rows.Scan(&user.Id, &user.Name, &user.Email, &user.PhoneNumber, &user.EmailVerificationToken, &user.EmailVerifiedAt, &user.CreatedAt, &user.UpdatedAt)
+	var emailVerificationToken sql.NullString
+	var emailVerifiedAt sql.NullTime
+	err = rows.Scan(&user.Id, &user.Name, &user.Email, &user.Password, &user.PhoneNumber, &emailVerificationToken, &emailVerifiedAt, &user.CreatedAt, &user.UpdatedAt)
 	if err != nil {
-		slog.Error("Error occurred while scanning user", "err", err)
+		slog.Debug("Error occurred while scanning user", "err", err)
 		return err
+	}
+
+	if emailVerificationToken.Valid {
+		user.EmailVerificationToken = emailVerificationToken.String
+	}
+	if emailVerifiedAt.Valid {
+		user.EmailVerifiedAt = emailVerifiedAt.Time
 	}
 
 	return c.JSON(fiber.Map{
