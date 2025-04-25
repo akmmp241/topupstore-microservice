@@ -45,16 +45,9 @@ func (s *AuthService) handleRegister(c *fiber.Ctx) error {
 	}
 
 	resp, err := CallUserService("/users", fiber.MethodPost, registerRequest)
-	if err != nil {
-		slog.Error("Error occurred while calling user service", "err", err)
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"message": "Internal Server Error",
-			"errors":  nil,
-		})
-	}
-
-	if len(resp.Errs) > 0 {
+	if err != nil || len(resp.Errs) > 0 {
 		slog.Error("Error occurred while calling user service", "errs", resp.Errs)
+		slog.Error("Error occurred while calling user service", "err", err)
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
 			"message": "Internal Server Error",
 			"errors":  nil,
@@ -63,10 +56,7 @@ func (s *AuthService) handleRegister(c *fiber.Ctx) error {
 
 	if resp.StatusCode != fiber.StatusCreated {
 		slog.Error("User service returned non-200 status code", "code", resp.StatusCode)
-		return c.Status(resp.StatusCode).JSON(fiber.Map{
-			"message": string(resp.Body),
-			"errors":  nil,
-		})
+		return fiber.NewError(resp.StatusCode, string(resp.Body))
 	}
 
 	// TODO: seng message to kafka for email verification
@@ -98,38 +88,27 @@ func (s *AuthService) Login(c *fiber.Ctx) error {
 	resp, err := CallUserService(url, fiber.MethodGet, nil)
 	if err != nil || len(resp.Errs) > 0 {
 		slog.Error("Error occurred while calling user service", "errs", resp.Errs)
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"message": "Internal Server Error",
-			"errors":  nil,
-		})
+		slog.Error("Error occurred while calling user service", "err", err)
+		return fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
 	}
 
 	if resp.StatusCode != fiber.StatusOK {
 		slog.Error("User service returned non-200 status code", "code", resp.StatusCode)
-		return c.Status(resp.StatusCode).JSON(fiber.Map{
-			"message": string(resp.Body),
-			"errors":  nil,
-		})
+		return fiber.NewError(resp.StatusCode, string(resp.Body))
 	}
 
-	globalResponse := &GlobalServiceResponse{}
-	err = json.Unmarshal(resp.Body, globalResponse)
+	getUserResponse := &GetUserResponse{}
+	err = json.Unmarshal(resp.Body, getUserResponse)
 	if err != nil {
 		slog.Error("Error occurred while unmarshalling response body", "err", err)
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"message": "Internal Server Error",
-			"errors":  nil,
-		})
+		return err
 	}
-
-	userResponse := globalResponse.Data.(GetUserResponse)
+	userResponse := getUserResponse.Data
 
 	err = bcrypt.CompareHashAndPassword([]byte(userResponse.Password), []byte(loginRequest.Password))
 	if err != nil {
 		slog.Error("Error occurred while comparing passwords", "err", err)
-		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
-			"message": "Invalid credentials",
-		})
+		return fiber.NewError(fiber.StatusUnauthorized, "Invalid credentials")
 	}
 
 	// Generate JWT token
@@ -138,10 +117,7 @@ func (s *AuthService) Login(c *fiber.Ctx) error {
 	accessToken, err := shared.GenerateJWTForUser(userId, expiry)
 	if err != nil {
 		slog.Error("Error occurred while generating JWT token", "err", err)
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"message": "Internal Server Error",
-			"errors":  nil,
-		})
+		return fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
 	}
 
 	// TODO: Send message to Kafka for email login

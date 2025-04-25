@@ -1,5 +1,7 @@
 package main
 
+import "time"
+
 type RegisterRequest struct {
 	Email                string `json:"email" validate:"required,email"`
 	Password             string `json:"password" validate:"required,min=8,max=255"`
@@ -13,16 +15,20 @@ type LoginRequest struct {
 	Password string `json:"password" validate:"required,min=8,max=255"`
 }
 
-type GlobalServiceResponse struct {
-	Message string `json:"message"`
-	Data    any    `json:"data"`
-	Errors  any    `json:"errors"`
+type UserResponse struct {
+	Id                     int       `json:"id"`
+	Name                   string    `json:"name"`
+	Email                  string    `json:"email"`
+	Password               string    `json:"password"`
+	PhoneNumber            string    `json:"phone_number"`
+	EmailVerificationToken string    `json:"email_verification_token"`
+	EmailVerifiedAt        time.Time `json:"email_verified_at"`
+	CreatedAt              time.Time `json:"created_at"`
+	UpdatedAt              time.Time `json:"updated_at"`
 }
 
 type GetUserResponse struct {
-	Id          int    `json:"id"`
-	Name        string `json:"name"`
-	Email       string `json:"email"`
-	Password    string `json:"password"`
-	PhoneNumber string `json:"phone_number"`
+	Message string       `json:"message"`
+	Data    UserResponse `json:"data"`
+	Errors  any          `json:"errors"`
 }
