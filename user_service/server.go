@@ -10,8 +10,7 @@ import (
 )
 
 type AppServer struct {
-	server   *fiber.App
-	consumer *KafkaConsumer
+	server *fiber.App
 }
 
 func NewAppServer() *AppServer {
@@ -19,23 +18,13 @@ func NewAppServer() *AppServer {
 	server := fiber.New()
 	validate := validator.New()
 
-	kafkaHost := os.Getenv("KAFKA_HOST")
-	kafkaPort := os.Getenv("KAFKA_PORT")
-	bootstrapServer := kafkaHost + ":" + kafkaPort
-
-	groupId := os.Getenv("USER_SERVICE_KAFKA_GROUP_ID")
-	topic := os.Getenv("USER_SERVICE_KAFKA_TOPIC")
-
 	api := server.Group("/api")
 
 	userService := NewUserService(validate, db)
 	userService.RegisterRoutes(api)
 
-	consumer := NewKafkaConsumer(bootstrapServer, groupId, topic)
-
 	return &AppServer{
-		server:   server,
-		consumer: consumer,
+		server: server,
 	}
 }
 
@@ -44,8 +33,4 @@ func (a *AppServer) RunHttpServer(port string) {
 		slog.Error(err.Error())
 		os.Exit(1)
 	}
-}
-
-func (a *AppServer) RunConsumer() {
-	a.consumer.Read()
 }
