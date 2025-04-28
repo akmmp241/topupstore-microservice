@@ -7,8 +7,10 @@ import (
 	"github.com/akmmp241/topupstore-microservice/shared"
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
+	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
 	"log/slog"
+	"os"
 	"strconv"
 	"time"
 )
@@ -28,6 +30,7 @@ func NewAuthService(p *KafkaProducer, v *validator.Validate) *AuthService {
 func (s *AuthService) RegisterRoutes(router fiber.Router) {
 	router.Post("/register", s.handleRegister)
 	router.Post("/login", s.Login)
+	router.Get("/verify/:token", s.handleVerifyEmail)
 }
 
 func (s *AuthService) handleRegister(c *fiber.Ctx) error {
@@ -152,6 +155,33 @@ func (s *AuthService) Login(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{
 		"message": "Login successful",
 		"data":    fiber.Map{"access_token": accessToken},
+		"errors":  nil,
+	})
+}
+
+func (s *AuthService) handleVerifyEmail(c *fiber.Ctx) error {
+	token := c.Params("token")
+	if token == "" {
+		return fiber.NewError(fiber.StatusBadRequest, "Invalid token")
+	}
+
+	url := fmt.Sprintf("/users/verify/%s", token)
+
+	resp, err := CallUserService(url, fiber.MethodPatch, nil)
+	if err != nil || len(resp.Errs) > 0 {
+		slog.Error("Error occurred while calling user service", "errs", resp.Errs)
+		slog.Error("Error occurred while calling user service", "err", err)
+		return fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
+	}
+
+	if resp.StatusCode != fiber.StatusOK {
+		slog.Error("User service returned non-200 status code", "code", resp.StatusCode)
+		return fiber.NewError(resp.StatusCode, string(resp.Body))
+	}
+
+	return c.JSON(fiber.Map{
+		"message": "Email verified successfully",
+		"data":    nil,
 		"errors":  nil,
 	})
 }
