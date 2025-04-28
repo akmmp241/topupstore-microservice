@@ -44,6 +44,8 @@ func (s *AuthService) handleRegister(c *fiber.Ctx) error {
 		return shared.NewFailedValidationError(*registerRequest, err.(validator.ValidationErrors))
 	}
 
+	registerRequest.EmailVerificationToken = uuid.NewString()
+
 	resp, err := CallUserService("/users", fiber.MethodPost, registerRequest)
 	if err != nil || len(resp.Errs) > 0 {
 		slog.Error("Error occurred while calling user service", "errs", resp.Errs)
@@ -59,9 +61,20 @@ func (s *AuthService) handleRegister(c *fiber.Ctx) error {
 		return fiber.NewError(resp.StatusCode, string(resp.Body))
 	}
 
-	// TODO: seng message to kafka for email verification
+	newRegistrationMsg := &NewRegistrationMessage{
+		Email:           registerRequest.Email,
+		Name:            registerRequest.Name,
+		VerificationUrl: fmt.Sprintf("%s/api/auth/verify/%s", os.Getenv("APP_URL"), registerRequest.EmailVerificationToken),
+	}
 
-	// Handle user registration
+	newRegistrationMsgBytes, err := json.Marshal(newRegistrationMsg)
+
+	msg := [2]string{"user-registration", string(newRegistrationMsgBytes)}
+
+	if err := s.Producer.Write(c.Context(), "user-registration", msg); err != nil {
+		slog.Error("Error occurred while sending message to Kafka", "err", err)
+	}
+
 	return c.Status(fiber.StatusCreated).JSON(fiber.Map{
 		"message": "User registered successfully",
 		"data":    nil,
