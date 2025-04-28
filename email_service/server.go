@@ -8,7 +8,8 @@ import (
 const GroupId = "email-service-group"
 
 type AppServer struct {
-	consumer *KafkaConsumer
+	consumer     *KafkaConsumer
+	EmailService *EmailService
 }
 
 func NewAppServer() *AppServer {
@@ -16,10 +17,9 @@ func NewAppServer() *AppServer {
 	kafkaPort := os.Getenv("KAFKA_PORT")
 	bootstrapServer := kafkaHost + ":" + kafkaPort
 
-	consumer := NewKafkaConsumer(bootstrapServer, GroupId)
-
 	return &AppServer{
-		consumer: consumer,
+		consumer:     NewKafkaConsumer(bootstrapServer, GroupId),
+		EmailService: NewEmailService(NewMailer()),
 	}
 }
 
@@ -27,12 +27,12 @@ func (a *AppServer) RunConsumer(wg *sync.WaitGroup) {
 	wg.Add(2)
 
 	go func() {
-		a.consumer.StartUserRegistrationConsumer()
+		a.consumer.StartUserRegistrationConsumer(a.EmailService.HandleUserRegistration)
 		defer wg.Done()
 	}()
 
 	go func() {
-		a.consumer.StartUserLoginConsumer()
+		a.consumer.StartUserLoginConsumer(a.EmailService.HandleUserLogin)
 		defer wg.Done()
 	}()
 }

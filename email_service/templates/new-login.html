@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>New Login Detected</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            margin: 0;
+            padding: 0;
+            background-color: #f4f4f4;
+        }
+
+        .container {
+            max-width: 600px;
+            margin: 20px auto;
+            background: white;
+            padding: 20px;
+            border-radius: 5px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .header {
+            text-align: center;
+            padding: 20px 0;
+            border-bottom: 2px solid #eee;
+        }
+
+        .content {
+            padding: 20px 0;
+        }
+
+        .footer {
+            text-align: center;
+            padding: 20px 0;
+            color: #666;
+            font-size: 12px;
+            border-top: 1px solid #eee;
+        }
+
+        .alert {
+            background-color: #fff3cd;
+            border: 1px solid #ffeeba;
+            color: #856404;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <h2>New Login Alert</h2>
+    </div>
+    <div class="content">
+        <p>Hello {{.Name}},</p>
+        <p>We detected a new login to your account with the following details:</p>
+        <div class="alert">
+            <p><strong>Time:</strong> {{.LoginTime}}</p>
+            <p><strong>IP Address:</strong> {{.IpAddress}}</p>
+            <p><strong>Device:</strong> {{.Device}}</p>
+        </div>
+        <p>If this wasn't you, please secure your account immediately by changing your password and contacting our
+            support team.</p>
+        <p>Best regards,<br>The Security Team</p>
+    </div>
+    <div class="footer">
+        <p>This is an automated message, please do not reply to this email.</p>
+        <p>&copy; AkmalStore 2025. All rights reserved.</p>
+    </div>
+</div>
+</body>
+</html>

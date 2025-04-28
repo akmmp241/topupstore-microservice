@@ -39,6 +39,24 @@ services:
     env_file:
       - .env
 
+  email_service:
+    build:
+      context: .
+      dockerfile: email_service/Dockerfile
+    environment:
+      KAFKA_HOST: ${KAFKA_HOST}
+      KAFKA_PORT: ${KAFKA_PORT}
+      SERVICE_JWT_SECRET_KEY: ${SERVICE_JWT_SECRET_KEY}
+      SMTP_USERNAME: ${SMTP_USERNAME}
+      SMTP_PASSWORD: ${SMTP_PASSWORD}
+      SMTP_HOST: ${SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT}
+      SMTP_FROM: ${SMTP_FROM}
+    networks:
+      - akmalstore_net
+    env_file:
+      - .env
+
   db:
     image: mysql:8.4
     container_name: db_mysql

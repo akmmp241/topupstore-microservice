@@ -9,9 +9,14 @@ import (
 	"time"
 )
 
+type HandlerKafka func(msg *kafka.Message) error
+
 type KafkaConsumer struct {
-	UserRegistrationReader *kafka.Reader
-	UserLoginReader        *kafka.Reader
+	UserRegistrationReader  *kafka.Reader
+	UserRegistrationHandler HandlerKafka
+	UserLoginReader         *kafka.Reader
+	UserLoginHandler        HandlerKafka
+	EmailService            *EmailService
 }
 
 type KafkaConfig struct {
@@ -51,7 +56,7 @@ func initUserLoginReader(cfg *KafkaConfig) *kafka.Reader {
 	})
 }
 
-func (c *KafkaConsumer) StartUserRegistrationConsumer() {
+func (c *KafkaConsumer) StartUserRegistrationConsumer(handler HandlerKafka) {
 	defer c.UserRegistrationReader.Close()
 	for {
 		message, err := c.UserRegistrationReader.ReadMessage(context.Background())
@@ -63,11 +68,18 @@ func (c *KafkaConsumer) StartUserRegistrationConsumer() {
 			slog.Error("Error while reading", "error:", err)
 			break
 		}
+
+		err = handler(&message)
+		if err != nil {
+			slog.Error("Error while handling message", "error:", err)
+			continue
+		}
+
 		slog.Debug("Received message", "message:", string(message.Value), "key:", string(message.Key))
 	}
 }
 
-func (c *KafkaConsumer) StartUserLoginConsumer() {
+func (c *KafkaConsumer) StartUserLoginConsumer(handler HandlerKafka) {
 	defer c.UserLoginReader.Close()
 	for {
 		message, err := c.UserLoginReader.ReadMessage(context.Background())
@@ -79,6 +91,14 @@ func (c *KafkaConsumer) StartUserLoginConsumer() {
 			slog.Error("Error while reading", "error:", err)
 			break
 		}
+
+		err = handler(&message)
+		if err != nil {
+			slog.Error("Error while handling message", "error:", err)
+			continue
+		}
+
 		slog.Debug("Received message", "message:", string(message.Value), "key", string(message.Key))
+
 	}
 }
