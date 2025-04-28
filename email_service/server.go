@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log/slog"
 	"os"
 	"sync"
 )
@@ -8,7 +9,7 @@ import (
 const GroupId = "email-service-group"
 
 type AppServer struct {
-	consumer     *KafkaConsumer
+	Consumer     *KafkaConsumer
 	EmailService *EmailService
 }
 
@@ -18,7 +19,7 @@ func NewAppServer() *AppServer {
 	bootstrapServer := kafkaHost + ":" + kafkaPort
 
 	return &AppServer{
-		consumer:     NewKafkaConsumer(bootstrapServer, GroupId),
+		Consumer:     NewKafkaConsumer(bootstrapServer, GroupId),
 		EmailService: NewEmailService(NewMailer()),
 	}
 }
@@ -27,12 +28,14 @@ func (a *AppServer) RunConsumer(wg *sync.WaitGroup) {
 	wg.Add(2)
 
 	go func() {
-		a.consumer.StartUserRegistrationConsumer(a.EmailService.HandleUserRegistration)
+		slog.Info("Starting User Registration Consumer")
+		a.Consumer.StartUserRegistrationConsumer(a.EmailService.HandleUserRegistration)
 		defer wg.Done()
 	}()
 
 	go func() {
-		a.consumer.StartUserLoginConsumer(a.EmailService.HandleUserLogin)
+		slog.Info("Starting User Login Consumer")
+		a.Consumer.StartUserLoginConsumer(a.EmailService.HandleUserLogin)
 		defer wg.Done()
 	}()
 }

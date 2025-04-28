@@ -15,3 +15,9 @@ type NewLoginMessage struct {
 	IpAddress string    `json:"ip_address"`
 	Device    string    `json:"device"`
 }
+
+type NewRegistrationMessage struct {
+	Name            string `json:"name"`
+	VerificationUrl string `json:"verification_url"`
+	Email           string `json:"email"`
+}

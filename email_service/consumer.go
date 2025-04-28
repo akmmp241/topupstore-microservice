@@ -37,7 +37,7 @@ func NewKafkaConsumer(bootstrapServer string, groupId string) *KafkaConsumer {
 }
 
 func initUserRegistrationReader(cfg *KafkaConfig) *kafka.Reader {
-	defer slog.Info("Kafka consumer created with", "topic:", "user-registration", "group-id:", cfg.GroupId)
+	defer slog.Info("Kafka Consumer created with", "topic:", "user-registration", "group-id:", cfg.GroupId)
 	return kafka.NewReader(kafka.ReaderConfig{
 		Brokers:        []string{cfg.BootstrapServer},
 		GroupID:        cfg.GroupId,
@@ -47,7 +47,7 @@ func initUserRegistrationReader(cfg *KafkaConfig) *kafka.Reader {
 }
 
 func initUserLoginReader(cfg *KafkaConfig) *kafka.Reader {
-	defer slog.Info("Kafka consumer created with", "topic:", "user-login", "group-id:", cfg.GroupId)
+	defer slog.Info("Kafka Consumer created with", "topic:", "user-login", "group-id:", cfg.GroupId)
 	return kafka.NewReader(kafka.ReaderConfig{
 		Brokers:        []string{cfg.BootstrapServer},
 		GroupID:        cfg.GroupId,
