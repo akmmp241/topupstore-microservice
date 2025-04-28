@@ -32,3 +32,11 @@ type GetUserResponse struct {
 	Data    UserResponse `json:"data"`
 	Errors  any          `json:"errors"`
 }
+
+type NewLoginMessage struct {
+	Email     string    `json:"email"`
+	Name      string    `json:"name"`
+	LoginTime time.Time `json:"login_time"`
+	IpAddress string    `json:"ip_address"`
+	Device    string    `json:"device"`
+}

@@ -120,7 +120,21 @@ func (s *AuthService) Login(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
 	}
 
-	// TODO: Send message to Kafka for email login
+	newLoginMsg := &NewLoginMessage{
+		Email:     userResponse.Email,
+		Name:      userResponse.Name,
+		LoginTime: time.Now(),
+		IpAddress: c.IP(),
+		Device:    c.Get("User-Agent"),
+	}
+	newLoginMsgBytes, err := json.Marshal(newLoginMsg)
+
+	msg := [2]string{"new-login", string(newLoginMsgBytes)}
+
+	err = s.Producer.Write(c.Context(), "user-login", msg)
+	if err != nil {
+		slog.Error("Error occurred while sending message to Kafka", "err", err)
+	}
 
 	return c.JSON(fiber.Map{
 		"message": "Login successful",

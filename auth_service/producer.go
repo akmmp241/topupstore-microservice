@@ -17,7 +17,6 @@ func NewKafkaProducer(bootstrapServer string) *KafkaProducer {
 
 	w := &kafka.Writer{
 		Addr:         kafka.TCP(bootstrapServer),
-		Topic:        topic,
 		Balancer:     &kafka.LeastBytes{},
 		BatchSize:    10,
 		BatchTimeout: time.Millisecond,
@@ -30,7 +29,7 @@ func NewKafkaProducer(bootstrapServer string) *KafkaProducer {
 	}
 }
 
-func (k *KafkaProducer) Write(messages ...[2]string) error {
+func (k *KafkaProducer) Write(ctx context.Context, topic string, messages ...[2]string) error {
 
 	var msgs []kafka.Message
 
@@ -38,10 +37,11 @@ func (k *KafkaProducer) Write(messages ...[2]string) error {
 		msgs = append(msgs, kafka.Message{
 			Key:   []byte(message[0]),
 			Value: []byte(message[1]),
+			Topic: topic,
 		})
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 
 	err := k.Writer.WriteMessages(ctx, msgs...)
