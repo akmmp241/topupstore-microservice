@@ -38,4 +38,10 @@ func (a *AppServer) RunConsumer(wg *sync.WaitGroup) {
 		a.Consumer.StartUserLoginConsumer(a.EmailService.HandleUserLogin)
 		defer wg.Done()
 	}()
+
+	go func() {
+		slog.Info("Starting Forgot Password Consumer")
+		a.Consumer.StartForgotPasswordConsumer(a.EmailService.HandleForgotPassword)
+		defer wg.Done()
+	}()
 }

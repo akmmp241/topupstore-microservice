@@ -16,6 +16,9 @@ var NewLoginEmail string
 //go:embed templates/user-registration.html
 var NewRegistrationEmail string
 
+//go:embed templates/forget-password.html
+var ForgetPasswordEmail string
+
 type EmailService struct {
 	Mailer *Mailer
 }
@@ -93,6 +96,46 @@ func (e *EmailService) HandleUserLogin(msg *kafka.Message) error {
 	emailData := &SendMail{
 		To:      to,
 		Subject: "New Login Alert",
+		Body:    body.String(),
+	}
+
+	if err := e.Mailer.SendMail(emailData); err != nil {
+		slog.Error("Error sending mail", "error", err)
+		return err
+	}
+
+	slog.Info("Email sent successfully", "to", to, "subject", emailData.Subject)
+
+	return nil
+}
+
+func (e *EmailService) HandleForgotPassword(msg *kafka.Message) error {
+	forgotPasswordMsg := ForgotPasswordMessage{}
+	if err := json.Unmarshal(msg.Value, &forgotPasswordMsg); err != nil {
+		slog.Error("Error unmarshalling message", "error", err)
+		return err
+	}
+
+	tmpl, err := template.New("forgot-password").Parse(ForgetPasswordEmail)
+	if err != nil {
+		slog.Error("Error parsing template", "error", err)
+		return err
+	}
+
+	var body bytes.Buffer
+	if err := tmpl.Execute(&body, forgotPasswordMsg); err != nil {
+		slog.Error("Error creating buffer", "error", err)
+		return err
+	}
+
+	to := os.Getenv("SMTP_FROM")
+	if os.Getenv("APP_ENV") == "production" {
+		to = forgotPasswordMsg.Email
+	}
+
+	emailData := &SendMail{
+		To:      to,
+		Subject: "Forgot Password",
 		Body:    body.String(),
 	}
 

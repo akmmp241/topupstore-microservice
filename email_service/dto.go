@@ -21,3 +21,10 @@ type NewRegistrationMessage struct {
 	VerificationUrl string `json:"verification_url"`
 	Email           string `json:"email"`
 }
+
+type ForgotPasswordMessage struct {
+	Email     string    `json:"email"`
+	Name      string    `json:"name"`
+	ResetUrl  string    `json:"reset_url"`
+	ExpiresAt time.Time `json:"expired_at"`
+}
