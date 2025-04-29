@@ -12,6 +12,8 @@ services:
       USER_SERVICE_HOST: ${USER_SERVICE_HOST}
       USER_SERVICE_PORT: ${USER_SERVICE_PORT}
       SERVICE_JWT_SECRET_KEY: ${SERVICE_JWT_SECRET_KEY}
+      REDIS_HOST: ${REDIS_HOST}
+      REDIS_PORT: ${REDIS_PORT}
     networks:
       - akmalstore_net
     env_file:
@@ -114,6 +116,25 @@ services:
       TZ: Asia/Jakarta
       KAFKA_CLUSTERS_0_NAME: local
       KAFKA_CLUSTERS_0_BOOTSTRAP_SERVERS: kafka:29092
+
+  redis:
+    image: redis:alpine
+    container_name: redis
+    networks:
+      - akmalstore_net
+    ports:
+      - "6379:6379"
+
+  redis-insight:
+    image: redis/redisinsight:latest
+    container_name: redisinsight
+    networks:
+      - akmalstore_net
+    ports:
+      - "5540:5540"
+    depends_on:
+      redis:
+        condition: service_started
 
 volumes:
   db_data:
