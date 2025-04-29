@@ -8,6 +8,7 @@ import (
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
 	"golang.org/x/crypto/bcrypt"
 	"log/slog"
 	"os"
@@ -16,14 +17,16 @@ import (
 )
 
 type AuthService struct {
-	Producer  *KafkaProducer
-	Validator *validator.Validate
+	Producer    *KafkaProducer
+	Validator   *validator.Validate
+	RedisClient *redis.Client
 }
 
-func NewAuthService(p *KafkaProducer, v *validator.Validate) *AuthService {
+func NewAuthService(p *KafkaProducer, v *validator.Validate, r *redis.Client) *AuthService {
 	return &AuthService{
-		Producer:  p,
-		Validator: v,
+		Producer:    p,
+		Validator:   v,
+		RedisClient: r,
 	}
 }
 
@@ -31,6 +34,7 @@ func (s *AuthService) RegisterRoutes(router fiber.Router) {
 	router.Post("/register", s.handleRegister)
 	router.Post("/login", s.Login)
 	router.Get("/verify/:token", s.handleVerifyEmail)
+	router.Post("/password", s.handleForgotPassword)
 }
 
 func (s *AuthService) handleRegister(c *fiber.Ctx) error {
@@ -181,6 +185,81 @@ func (s *AuthService) handleVerifyEmail(c *fiber.Ctx) error {
 
 	return c.JSON(fiber.Map{
 		"message": "Email verified successfully",
+		"data":    nil,
+		"errors":  nil,
+	})
+}
+
+func (s *AuthService) handleForgotPassword(c *fiber.Ctx) error {
+	forgotPasswordRequest := &ForgotPasswordRequest{}
+	err := c.BodyParser(forgotPasswordRequest)
+	if err != nil {
+		slog.Error("Error occurred while parsing request body", "err", err)
+		return fiber.NewError(fiber.StatusBadRequest, "Invalid request body")
+	}
+
+	err = s.Validator.Struct(forgotPasswordRequest)
+	if err != nil && errors.As(err, &validator.ValidationErrors{}) {
+		return shared.NewFailedValidationError(*forgotPasswordRequest, err.(validator.ValidationErrors))
+	}
+
+	url := fmt.Sprintf("/users?email=%s", forgotPasswordRequest.Email)
+	resp, err := CallUserService(url, fiber.MethodGet, nil)
+	if err != nil || len(resp.Errs) > 0 {
+		slog.Error("Error occurred while calling user service", "errs", resp.Errs)
+		slog.Error("Error occurred while calling user service", "err", err)
+		return fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
+	}
+
+	if resp.StatusCode == fiber.StatusNotFound {
+		return c.JSON(fiber.Map{
+			"message": "Password reset instructions sent to email",
+			"data":    nil,
+			"errors":  nil,
+		})
+	}
+
+	if resp.StatusCode != fiber.StatusOK {
+		return fiber.NewError(fiber.StatusNotFound, "User not found")
+	}
+
+	getUserResponse := &GetUserResponse{}
+	err = json.Unmarshal(resp.Body, getUserResponse)
+	if err != nil {
+		slog.Error("Error occurred while unmarshalling response body", "err", err)
+		return err
+	}
+
+	resetToken := uuid.NewString()
+	expiration := time.Hour
+
+	key := fmt.Sprintf("forgot-password:%s", resetToken)
+	err = s.RedisClient.SetEx(c.Context(), key, getUserResponse.Data.Email, expiration).Err()
+	if err != nil {
+		slog.Error("Error occurred while setting Redis key", "err", err)
+		return fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
+	}
+
+	forgotPasswordMsg := &ForgotPasswordMessage{
+		Email:     getUserResponse.Data.Email,
+		Name:      getUserResponse.Data.Name,
+		ResetUrl:  fmt.Sprintf("%s/reset-password/%s", os.Getenv("APP_URL"), resetToken),
+		ExpiresAt: time.Now().Add(expiration),
+	}
+
+	forgotPasswordMsgBytes, err := json.Marshal(forgotPasswordMsg)
+	if err != nil {
+		slog.Error("Error occurred while marshalling message", "err", err)
+		return fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
+	}
+
+	msg := [2]string{"forgot-password", string(forgotPasswordMsgBytes)}
+	if err := s.Producer.Write(c.Context(), "forget-password", msg); err != nil {
+		slog.Error("Error occurred while sending message to Kafka", "err", err)
+	}
+
+	return c.JSON(fiber.Map{
+		"message": "Password reset instructions sent to email",
 		"data":    nil,
 		"errors":  nil,
 	})

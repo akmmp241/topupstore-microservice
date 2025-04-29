@@ -21,7 +21,9 @@ func NewAppServer(producer *KafkaProducer) *AppServer {
 
 	app := server.Group("/api/auth")
 
-	authService := NewAuthService(producer, validate)
+	redisClient := shared.NewRedis()
+
+	authService := NewAuthService(producer, validate, redisClient)
 	authService.RegisterRoutes(app)
 
 	return &AppServer{

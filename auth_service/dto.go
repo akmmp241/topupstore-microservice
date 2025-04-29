@@ -16,6 +16,10 @@ type LoginRequest struct {
 	Password string `json:"password" validate:"required,min=8,max=255"`
 }
 
+type ForgotPasswordRequest struct {
+	Email string `json:"email" validate:"required,email"`
+}
+
 type UserResponse struct {
 	Id                     int       `json:"id"`
 	Name                   string    `json:"name"`
@@ -46,4 +50,11 @@ type NewRegistrationMessage struct {
 	Name            string `json:"name"`
 	VerificationUrl string `json:"verification_url"`
 	Email           string `json:"email"`
+}
+
+type ForgotPasswordMessage struct {
+	Email     string    `json:"email"`
+	Name      string    `json:"name"`
+	ResetUrl  string    `json:"reset_url"`
+	ExpiresAt time.Time `json:"expired_at"`
 }
