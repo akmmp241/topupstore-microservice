@@ -5,7 +5,6 @@ import (
 	"github.com/akmmp241/topupstore-microservice/shared"
 	"github.com/segmentio/kafka-go"
 	"log/slog"
-	"os"
 	"time"
 )
 
@@ -14,10 +13,8 @@ type KafkaProducer struct {
 }
 
 func NewKafkaProducer(bootstrapServer string) *KafkaProducer {
-	topic := os.Getenv("USER_SERVICE_KAFKA_TOPIC")
-
 	w := shared.NewProducer()
-	slog.Info("Kafka producer created with", "topic:", topic)
+	slog.Info("Kafka Producer created with", "bootstrap-server", bootstrapServer, "topic:", "user-registration", "user-login", "forgot-password")
 
 	return &KafkaProducer{
 		Writer: w,

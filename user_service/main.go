@@ -2,13 +2,13 @@ package main
 
 import (
 	"log/slog"
+	"os"
 )
-
-const PORT = "3002"
 
 func main() {
 	app := NewAppServer()
 
-	slog.Info("Starting HTTP server on", "port:", PORT)
-	app.RunHttpServer(PORT)
+	port := os.Getenv("USER_SERVICE_PORT")
+	slog.Info("Starting HTTP server on", "port:", port)
+	app.RunHttpServer(port)
 }
