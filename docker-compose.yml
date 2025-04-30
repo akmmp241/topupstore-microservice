@@ -1,12 +1,24 @@
 services:
+  web:
+    image: nginx:alpine
+    ports:
+      - "3000:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    networks:
+      akmalstore_net:
+    depends_on:
+      auth_service:
+        condition: service_started
+      user_service:
+        condition: service_started
+
   auth_service:
     build:
       context: .
       dockerfile: auth_service/Dockerfile
-    ports:
-      - "3001:3001"
+    restart: always
     environment:
-      USER_SERVICE_KAFKA_TOPIC: ${USER_SERVICE_KAFKA_TOPIC}
       KAFKA_HOST: ${KAFKA_HOST}
       KAFKA_PORT: ${KAFKA_PORT}
       USER_SERVICE_HOST: ${USER_SERVICE_HOST}
@@ -23,8 +35,7 @@ services:
     build:
       context: .
       dockerfile: user_service/Dockerfile
-    ports:
-      - ${USER_SERVICE_PORT}:${USER_SERVICE_PORT}
+    restart: always
     environment:
       DB_NAME: ${MYSQL_DATABASE}
       DB_USER: ${MYSQL_USER}
