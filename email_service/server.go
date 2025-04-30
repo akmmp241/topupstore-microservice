@@ -25,7 +25,7 @@ func NewAppServer() *AppServer {
 }
 
 func (a *AppServer) RunConsumer(wg *sync.WaitGroup) {
-	wg.Add(2)
+	wg.Add(3)
 
 	go func() {
 		slog.Info("Starting User Registration Consumer")
