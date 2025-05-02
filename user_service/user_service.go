@@ -162,7 +162,7 @@ func (s *UserService) handleUpdateUser(c *fiber.Ctx) error {
 
 	if err != nil {
 		slog.Error("Error occurred while parsing request body", "err", err);
-		return fiber.NewError(fiber.StatusBadRequest, "Invalid request body");
+		return fiber.NewError(fiber.StatusBadRequest, "Invalid request body");s
 	};
 
 	password, err := bcrypt.GenerateFromPassword([]byte(user.Password), bcrypt.DefaultCost)
@@ -184,7 +184,7 @@ func (s *UserService) handleUpdateUser(c *fiber.Ctx) error {
 
 	rowsAffected, err := result.RowsAffected()
 	if err != nil || rowsAffected == 0 {
-		slog.Info("No rows affected while inserting user", "err", err)
+		slog.Info("No rows affected while updating user", "err", err)
 		return fiber.NewError(fiber.StatusInternalServerError, "Failed to update user")
 	}
 

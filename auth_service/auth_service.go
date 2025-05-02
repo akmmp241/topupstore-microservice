@@ -274,5 +274,20 @@ func (s *AuthService) handleResetPassword(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "Invalid request body")
 	}
 
-	return nil
+	err = s.Validator.Struct(resetPasswordRequest)
+
+	if err != nil && errors.As(err, &validator.ValidationErrors{}) {
+		return shared.NewFailedValidationError(*resetPasswordRequest, err.(validator.ValidationErrors))
+	}
+
+	if resetPasswordRequest.Password != resetPasswordRequest.PasswordConfirmation {
+		slog.Error("New Password and password confirmation must be matched", "err", err)
+		return fiber.NewError(fiber.StatusBadRequest, "Invalid request body")
+	}
+
+	return c.JSON(fiber.Map{
+		"message": "Password changed successfully",
+		"data":    nil,
+		"errors":  nil,
+	})
 }

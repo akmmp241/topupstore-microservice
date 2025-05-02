@@ -60,7 +60,7 @@ type ForgotPasswordMessage struct {
 }
 
 type ResetPasswordRequest struct {
-	ResetToken           string `json:"resetToken"`
-	Password             string `json:"password"`
-	PasswordConfirmation string `json:"password_confirmation"`
+	ResetToken           string `json:"resetToken" validate:"required"`
+	Password             string `json:"password" validate:"required,min=8,max=255"`
+	PasswordConfirmation string `json:"password_confirmation" validate:"required,min=8,max=255"`
 }
