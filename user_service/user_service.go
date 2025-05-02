@@ -33,6 +33,7 @@ func (s *UserService) RegisterRoutes(router fiber.Router) {
 	internalAPI.Put("/:id", s.handleUpdateUser)
 	internalAPI.Delete("/:id", s.handleDeleteUser)
 	internalAPI.Patch("/verify/:token", s.handleVerifyEmail)
+	internalAPI.Put("/reset-password")
 
 	router.Get("/me", s.handleGetUser)
 }
@@ -150,7 +151,48 @@ func (s *UserService) handleGetUser(c *fiber.Ctx) error {
 }
 
 func (s *UserService) handleUpdateUser(c *fiber.Ctx) error {
-	return c.SendString("User updated successfully")
+	userId := c.Params("id")
+	user := &User{}
+
+	if userId == "" {
+		return fiber.NewError(fiber.StatusBadRequest, "User ID Required")
+	}
+
+	err := c.BodyParser(user);
+
+	if err != nil {
+		slog.Error("Error occurred while parsing request body", "err", err);
+		return fiber.NewError(fiber.StatusBadRequest, "Invalid request body");
+	};
+
+	password, err := bcrypt.GenerateFromPassword([]byte(user.Password), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+	user.Password = string(password)
+
+	tx, err := s.DB.Begin();
+	if err != nil { return err };
+	defer shared.CommitOrRollback(tx, err);
+
+	result, err := tx.ExecContext(s.Ctx, "UPDATE users SET email = ?, password = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", user.Email, user.Password, userId);
+
+	if err != nil {
+		slog.Info("Internal server error", "err", err)
+		return fiber.NewError(fiber.StatusInternalServerError, "Failed to update user")
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil || rowsAffected == 0 {
+		slog.Info("No rows affected while inserting user", "err", err)
+		return fiber.NewError(fiber.StatusInternalServerError, "Failed to update user")
+	}
+
+	return c.JSON(fiber.Map{
+		"message": "User updated successfully",
+		"data": nil,
+		"errors": nil,
+	});
 }
 
 func (s *UserService) handleDeleteUser(c *fiber.Ctx) error {
@@ -204,7 +246,7 @@ func (s *UserService) handleVerifyEmail(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(fiber.Map{
-		"message": "Email verified successfully",
+		"message": "Email verified return c.SendString("User updated successfully")uccessfully",
 		"data":    nil,
 		"errors":  nil,
 	})

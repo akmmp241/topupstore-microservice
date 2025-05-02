@@ -264,3 +264,15 @@ func (s *AuthService) handleForgotPassword(c *fiber.Ctx) error {
 		"errors":  nil,
 	})
 }
+
+func (s *AuthService) handleResetPassword(c *fiber.Ctx) error {
+	resetPasswordRequest := &ResetPasswordRequest{}
+	err := c.BodyParser(resetPasswordRequest)
+
+	if err != nil {
+		slog.Error("Error occurred while parsing request body", "err", err)
+		return fiber.NewError(fiber.StatusBadRequest, "Invalid request body")
+	}
+
+	return nil
+}
