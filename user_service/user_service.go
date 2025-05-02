@@ -158,12 +158,12 @@ func (s *UserService) handleUpdateUser(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "User ID Required")
 	}
 
-	err := c.BodyParser(user);
+	err := c.BodyParser(user)
 
 	if err != nil {
-		slog.Error("Error occurred while parsing request body", "err", err);
-		return fiber.NewError(fiber.StatusBadRequest, "Invalid request body");s
-	};
+		slog.Error("Error occurred while parsing request body", "err", err)
+		return fiber.NewError(fiber.StatusBadRequest, "Invalid request body")
+	}
 
 	password, err := bcrypt.GenerateFromPassword([]byte(user.Password), bcrypt.DefaultCost)
 	if err != nil {
@@ -171,11 +171,13 @@ func (s *UserService) handleUpdateUser(c *fiber.Ctx) error {
 	}
 	user.Password = string(password)
 
-	tx, err := s.DB.Begin();
-	if err != nil { return err };
-	defer shared.CommitOrRollback(tx, err);
+	tx, err := s.DB.Begin()
+	if err != nil {
+		return err
+	}
+	defer shared.CommitOrRollback(tx, err)
 
-	result, err := tx.ExecContext(s.Ctx, "UPDATE users SET email = ?, password = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", user.Email, user.Password, userId);
+	result, err := tx.ExecContext(s.Ctx, "UPDATE users SET email = ?, password = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", user.Email, user.Password, userId)
 
 	if err != nil {
 		slog.Info("Internal server error", "err", err)
@@ -190,9 +192,9 @@ func (s *UserService) handleUpdateUser(c *fiber.Ctx) error {
 
 	return c.JSON(fiber.Map{
 		"message": "User updated successfully",
-		"data": nil,
-		"errors": nil,
-	});
+		"data":    nil,
+		"errors":  nil,
+	})
 }
 
 func (s *UserService) handleDeleteUser(c *fiber.Ctx) error {
@@ -246,7 +248,7 @@ func (s *UserService) handleVerifyEmail(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(fiber.Map{
-		"message": "Email verified return c.SendString("User updated successfully")uccessfully",
+		"message": "Email verified",
 		"data":    nil,
 		"errors":  nil,
 	})

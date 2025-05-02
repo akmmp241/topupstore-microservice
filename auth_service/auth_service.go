@@ -285,6 +285,16 @@ func (s *AuthService) handleResetPassword(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "Invalid request body")
 	}
 
+	resp, err := CallUserService("/users", fiber.MethodPut, resetPasswordRequest)
+	if err != nil || len(resp.Errs) > 0 {
+		slog.Error("Error occurred while calling user service", "errs", resp.Errs)
+		slog.Error("Error occurred while calling user service", "err", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"message": "Internal Server Error",
+			"errors":  nil,
+		})
+	}
+
 	return c.JSON(fiber.Map{
 		"message": "Password changed successfully",
 		"data":    nil,
