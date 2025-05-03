@@ -172,7 +172,6 @@ func (s *UserService) handleUpdateUser(c *fiber.Ctx) error {
 	}
 
 	// parse request, converting it from ResetPasswordRequest to User model
-
 	err := c.BodyParser(user)
 	if err != nil {
 		slog.Error("Error occurred while parsing request body", "err", err)
@@ -180,7 +179,6 @@ func (s *UserService) handleUpdateUser(c *fiber.Ctx) error {
 	}
 
 	// Encrypt pass akwakwka
-
 	password, err := bcrypt.GenerateFromPassword([]byte(user.Password), bcrypt.DefaultCost)
 	if err != nil {
 		return err
@@ -188,7 +186,6 @@ func (s *UserService) handleUpdateUser(c *fiber.Ctx) error {
 	user.Password = string(password)
 
 	// Transaction stuffs
-
 	tx, err := s.DB.Begin()
 	if err != nil {
 		return err
@@ -196,7 +193,6 @@ func (s *UserService) handleUpdateUser(c *fiber.Ctx) error {
 	defer shared.CommitOrRollback(tx, err)
 
 	// Build n exec query
-
 	query := spew.Sprintf("UPDATE users SET email = ?, password = ?, updated_at = CURRENT_TIMESTAMP WHERE %s = ?", column)
 
 	result, err := tx.ExecContext(s.Ctx, query, user.Email, user.Password, target)
@@ -207,7 +203,6 @@ func (s *UserService) handleUpdateUser(c *fiber.Ctx) error {
 	}
 
 	// Checks update status
-
 	rowsAffected, err := result.RowsAffected()
 	if err != nil || rowsAffected == 0 {
 		slog.Info("No rows affected while updating user", "err", err)
