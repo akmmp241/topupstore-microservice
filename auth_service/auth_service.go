@@ -266,6 +266,7 @@ func (s *AuthService) handleForgotPassword(c *fiber.Ctx) error {
 }
 
 func (s *AuthService) handleResetPassword(c *fiber.Ctx) error {
+	// parse body
 	resetPasswordRequest := &ResetPasswordRequest{}
 	err := c.BodyParser(resetPasswordRequest)
 
@@ -274,18 +275,41 @@ func (s *AuthService) handleResetPassword(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "Invalid request body")
 	}
 
+	// validate, rules can be seen in dto file
+
 	err = s.Validator.Struct(resetPasswordRequest)
 
 	if err != nil && errors.As(err, &validator.ValidationErrors{}) {
 		return shared.NewFailedValidationError(*resetPasswordRequest, err.(validator.ValidationErrors))
 	}
 
+	// checks both password and confirm_passwrod's integrity
+
 	if resetPasswordRequest.Password != resetPasswordRequest.PasswordConfirmation {
 		slog.Error("New Password and password confirmation must be matched", "err", err)
 		return fiber.NewError(fiber.StatusBadRequest, "Invalid request body")
 	}
 
-	resp, err := CallUserService("/users", fiber.MethodPut, resetPasswordRequest)
+	// checks reset token integrity by accessing redis
+
+	key := fmt.Sprintf("forgot-password:%s", resetPasswordRequest.ResetToken)
+
+	expiration := time.Hour
+
+	val, err := s.RedisClient.GetEx(c.Context(), key, expiration).Result()
+	if err != nil {
+		return err
+	}
+
+	if val == "" {
+		slog.Error("Reset token is not valid", "err", err)
+		return fiber.NewError(fiber.StatusBadRequest, "Reset token is not valid")
+	}
+
+	// calls user service
+
+	url := fmt.Sprintf("/users?email=%s", val)
+	resp, err := CallUserService(url, fiber.MethodPut, resetPasswordRequest)
 	if err != nil || len(resp.Errs) > 0 {
 		slog.Error("Error occurred while calling user service", "errs", resp.Errs)
 		slog.Error("Error occurred while calling user service", "err", err)

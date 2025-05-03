@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/akmmp241/topupstore-microservice/shared"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/go-playground/validator/v10"
 	"github.com/go-sql-driver/mysql"
 	"github.com/gofiber/fiber/v2"
@@ -30,10 +31,9 @@ func (s *UserService) RegisterRoutes(router fiber.Router) {
 	internalAPI.Use(shared.JWTServiceMiddleware)
 	internalAPI.Post("/", s.handleCreateUser)
 	internalAPI.Get("/", s.handleGetUser)
-	internalAPI.Put("/:id", s.handleUpdateUser)
+	internalAPI.Put("/", s.handleUpdateUser)
 	internalAPI.Delete("/:id", s.handleDeleteUser)
 	internalAPI.Patch("/verify/:token", s.handleVerifyEmail)
-	internalAPI.Put("/reset-password")
 
 	router.Get("/me", s.handleGetUser)
 }
@@ -151,19 +151,35 @@ func (s *UserService) handleGetUser(c *fiber.Ctx) error {
 }
 
 func (s *UserService) handleUpdateUser(c *fiber.Ctx) error {
-	userId := c.Params("id")
+	// Initialize model
 	user := &User{}
 
-	if userId == "" {
-		return fiber.NewError(fiber.StatusBadRequest, "User ID Required")
+	// Changed the handler's flexibility, adding more than one identifier.
+	userId := c.Query("id")
+	userEmail := c.Query("email")
+
+	if userEmail == "" && userId == "" {
+		return fiber.NewError(fiber.StatusBadRequest, "User ID or email is required")
+	} else if userEmail != "" && userId != "" {
+		return fiber.NewError(fiber.StatusBadRequest, "Only one of user ID or email should be provided")
 	}
 
-	err := c.BodyParser(user)
+	target := userId
+	column := "id"
+	if userEmail != "" {
+		column = "email"
+		target = userEmail
+	}
 
+	// parse request, converting it from ResetPasswordRequest to User model
+
+	err := c.BodyParser(user)
 	if err != nil {
 		slog.Error("Error occurred while parsing request body", "err", err)
 		return fiber.NewError(fiber.StatusBadRequest, "Invalid request body")
 	}
+
+	// Encrypt pass akwakwka
 
 	password, err := bcrypt.GenerateFromPassword([]byte(user.Password), bcrypt.DefaultCost)
 	if err != nil {
@@ -171,18 +187,26 @@ func (s *UserService) handleUpdateUser(c *fiber.Ctx) error {
 	}
 	user.Password = string(password)
 
+	// Transaction stuffs
+
 	tx, err := s.DB.Begin()
 	if err != nil {
 		return err
 	}
 	defer shared.CommitOrRollback(tx, err)
 
-	result, err := tx.ExecContext(s.Ctx, "UPDATE users SET email = ?, password = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", user.Email, user.Password, userId)
+	// Build n exec query
+
+	query := spew.Sprintf("UPDATE users SET email = ?, password = ?, updated_at = CURRENT_TIMESTAMP WHERE %s = ?", column)
+
+	result, err := tx.ExecContext(s.Ctx, query, user.Email, user.Password, target)
 
 	if err != nil {
 		slog.Info("Internal server error", "err", err)
 		return fiber.NewError(fiber.StatusInternalServerError, "Failed to update user")
 	}
+
+	// Checks update status
 
 	rowsAffected, err := result.RowsAffected()
 	if err != nil || rowsAffected == 0 {
