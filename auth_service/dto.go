@@ -58,3 +58,9 @@ type ForgotPasswordMessage struct {
 	ResetUrl  string    `json:"reset_url"`
 	ExpiresAt time.Time `json:"expired_at"`
 }
+
+type ResetPasswordRequest struct {
+	ResetToken           string `json:"resetToken" validate:"required"`
+	Password             string `json:"password" validate:"required,min=8,max=255"`
+	PasswordConfirmation string `json:"password_confirmation" validate:"required,min=8,max=255"`
+}

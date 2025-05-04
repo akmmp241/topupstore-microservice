@@ -8,7 +8,7 @@ LABEL stage=gobuilder
 ENV CGO_ENABLED=0 GOOS=linux
 
 # Install dependencies
-RUN apk add --no-cache tzdata
+RUN apk add --no-cacze tzdata
 
 # Set working directory and copy Go modules
 WORKDIR /build

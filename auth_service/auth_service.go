@@ -35,6 +35,7 @@ func (s *AuthService) RegisterRoutes(router fiber.Router) {
 	router.Post("/login", s.Login)
 	router.Get("/verify/:token", s.handleVerifyEmail)
 	router.Post("/password", s.handleForgotPassword)
+	router.Post("/reset-password/:reset_token", s.handleResetPassword)
 }
 
 func (s *AuthService) handleRegister(c *fiber.Ctx) error {
@@ -260,6 +261,61 @@ func (s *AuthService) handleForgotPassword(c *fiber.Ctx) error {
 
 	return c.JSON(fiber.Map{
 		"message": "Password reset instructions sent to email",
+		"data":    nil,
+		"errors":  nil,
+	})
+}
+
+func (s *AuthService) handleResetPassword(c *fiber.Ctx) error {
+	// parse body n take the reset_token
+	resetPasswordRequest := &ResetPasswordRequest{}
+	err := c.BodyParser(resetPasswordRequest)
+	resetPasswordRequest.ResetToken = c.Params("reset_token")
+
+	if err != nil {
+		slog.Error("Error occurred while parsing request body", "err", err)
+		return fiber.NewError(fiber.StatusBadRequest, "Invalid request body")
+	}
+
+	// validate, rules can be seen in dto file
+	err = s.Validator.Struct(resetPasswordRequest)
+
+	if err != nil && errors.As(err, &validator.ValidationErrors{}) {
+		return shared.NewFailedValidationError(*resetPasswordRequest, err.(validator.ValidationErrors))
+	}
+
+	// checks both password and confirm_password's integrity
+	if resetPasswordRequest.Password != resetPasswordRequest.PasswordConfirmation {
+		slog.Error("New Password and password confirmation must be matched", "err", err)
+		return fiber.NewError(fiber.StatusBadRequest, "Invalid request body")
+	}
+
+	// checks reset token integrity by accessing redis
+	key := fmt.Sprintf("forgot-password:%s", resetPasswordRequest.ResetToken)
+	expiration := time.Hour
+	val, err := s.RedisClient.GetEx(c.Context(), key, expiration).Result()
+	if err != nil {
+		return err
+	}
+	if val == "" {
+		slog.Error("Reset token is not valid", "err", err)
+		return fiber.NewError(fiber.StatusBadRequest, "Reset token is not valid")
+	}
+
+	// calls user service
+	url := fmt.Sprintf("/users?email=%s", val)
+	resp, err := CallUserService(url, fiber.MethodPut, resetPasswordRequest)
+	if err != nil || len(resp.Errs) > 0 {
+		slog.Error("Error occurred while calling user service", "errs", resp.Errs)
+		slog.Error("Error occurred while calling user service", "err", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"message": "Internal Server Error",
+			"errors":  nil,
+		})
+	}
+
+	return c.JSON(fiber.Map{
+		"message": "Password changed successfully",
 		"data":    nil,
 		"errors":  nil,
 	})
