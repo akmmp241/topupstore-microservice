@@ -14,7 +14,7 @@ type KafkaProducer struct {
 
 func NewKafkaProducer(bootstrapServer string) *KafkaProducer {
 	w := shared.NewProducer()
-	slog.Info("Kafka Producer created with", "bootstrap-server", bootstrapServer, "topic:", "user-registration", "user-login", "forgot-password")
+	slog.Info("Kafka Producer created with", "bootstrap-server", bootstrapServer)
 
 	return &KafkaProducer{
 		Writer: w,

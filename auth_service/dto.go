@@ -64,3 +64,10 @@ type ResetPasswordRequest struct {
 	Password             string `json:"password" validate:"required,min=8,max=255"`
 	PasswordConfirmation string `json:"password_confirmation" validate:"required,min=8,max=255"`
 }
+
+type UpdateUserRequest struct {
+	Email       string `json:"email" validate:"required,email"`
+	Name        string `json:"name" validate:"required,min=2,max=255"`
+	PhoneNumber string `json:"phone_number" validate:"required,min=10,max=15"`
+	Password    string `json:"password" validate:"omitempty,min=8,max=255"`
+}

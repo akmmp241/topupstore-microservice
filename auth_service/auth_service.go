@@ -35,7 +35,7 @@ func (s *AuthService) RegisterRoutes(router fiber.Router) {
 	router.Post("/login", s.Login)
 	router.Get("/verify/:token", s.handleVerifyEmail)
 	router.Post("/password", s.handleForgotPassword)
-	router.Post("/reset-password/:reset_token", s.handleResetPassword)
+	router.Patch("/password/:reset_token", s.handleResetPassword)
 }
 
 func (s *AuthService) handleRegister(c *fiber.Ctx) error {
@@ -277,7 +277,7 @@ func (s *AuthService) handleResetPassword(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "Invalid request body")
 	}
 
-	// validate, rules can be seen in dto file
+	// to validate, rules can be seen in a dto file
 	err = s.Validator.Struct(resetPasswordRequest)
 
 	if err != nil && errors.As(err, &validator.ValidationErrors{}) {
@@ -292,8 +292,7 @@ func (s *AuthService) handleResetPassword(c *fiber.Ctx) error {
 
 	// checks reset token integrity by accessing redis
 	key := fmt.Sprintf("forgot-password:%s", resetPasswordRequest.ResetToken)
-	expiration := time.Hour
-	val, err := s.RedisClient.GetEx(c.Context(), key, expiration).Result()
+	val, err := s.RedisClient.Get(c.Context(), key).Result()
 	if err != nil {
 		return err
 	}
@@ -302,17 +301,26 @@ func (s *AuthService) handleResetPassword(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "Reset token is not valid")
 	}
 
+	updateRequest := &UpdateUserRequest{
+		Password: resetPasswordRequest.Password,
+	}
+
 	// calls user service
 	url := fmt.Sprintf("/users?email=%s", val)
-	resp, err := CallUserService(url, fiber.MethodPut, resetPasswordRequest)
+	resp, err := CallUserService(url, fiber.MethodPut, updateRequest)
 	if err != nil || len(resp.Errs) > 0 {
 		slog.Error("Error occurred while calling user service", "errs", resp.Errs)
 		slog.Error("Error occurred while calling user service", "err", err)
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"message": "Internal Server Error",
-			"errors":  nil,
-		})
+		return fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
 	}
+
+	if resp.StatusCode != fiber.StatusOK {
+		slog.Error("User service returned non-200 status code", "code", resp.StatusCode)
+		return fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
+	}
+
+	// Delete the reset token from Redis
+	s.RedisClient.Del(c.Context(), key)
 
 	return c.JSON(fiber.Map{
 		"message": "Password changed successfully",
