@@ -113,33 +113,10 @@ func (s *UserService) handleGetUser(c *fiber.Ctx) error {
 		column = "email"
 		target = userEmail
 	}
-	query := fmt.Sprintf("SELECT id, name, email, password, phone_number, email_verification_token, email_verified_at, created_at, updated_at FROM users WHERE %s = ?", column)
 
-	rows, err := s.DB.QueryContext(s.Ctx, query, target)
+	user, err := s.getUser(s.Ctx, target, column)
 	if err != nil {
-		slog.Debug("Error occurred while querying user", "err", err)
 		return err
-	}
-	defer rows.Close()
-
-	var user User
-	if !rows.Next() {
-		return fiber.NewError(fiber.StatusNotFound, "User not found")
-	}
-
-	var emailVerificationToken sql.NullString
-	var emailVerifiedAt sql.NullTime
-	err = rows.Scan(&user.Id, &user.Name, &user.Email, &user.Password, &user.PhoneNumber, &emailVerificationToken, &emailVerifiedAt, &user.CreatedAt, &user.UpdatedAt)
-	if err != nil {
-		slog.Debug("Error occurred while scanning user", "err", err)
-		return err
-	}
-
-	if emailVerificationToken.Valid {
-		user.EmailVerificationToken = emailVerificationToken.String
-	}
-	if emailVerifiedAt.Valid {
-		user.EmailVerifiedAt = emailVerifiedAt.Time
 	}
 
 	return c.JSON(fiber.Map{
@@ -151,9 +128,6 @@ func (s *UserService) handleGetUser(c *fiber.Ctx) error {
 }
 
 func (s *UserService) handleUpdateUser(c *fiber.Ctx) error {
-	// Initialize model
-	user := &User{}
-
 	// Changed the handler's flexibility, adding more than one identifier.
 	userId := c.Query("id")
 	userEmail := c.Query("email")
@@ -171,19 +145,41 @@ func (s *UserService) handleUpdateUser(c *fiber.Ctx) error {
 		target = userEmail
 	}
 
-	// parse request, converting it from ResetPasswordRequest to User model
-	err := c.BodyParser(user)
-	if err != nil {
-		slog.Error("Error occurred while parsing request body", "err", err)
-		return fiber.NewError(fiber.StatusBadRequest, "Invalid request body")
-	}
-
-	// Encrypt pass akwakwka
-	password, err := bcrypt.GenerateFromPassword([]byte(user.Password), bcrypt.DefaultCost)
+	user, err := s.getUser(s.Ctx, target, column)
 	if err != nil {
 		return err
 	}
-	user.Password = string(password)
+
+	updateRequest := &UpdateUserRequest{}
+
+	err = c.BodyParser(updateRequest)
+	if err != nil {
+		slog.Debug("Error occurred while parsing request body", "err", err)
+		return fiber.NewError(fiber.StatusBadRequest, "Invalid request body")
+	}
+
+	if updateRequest.Email != "" {
+		user.Email = updateRequest.Email
+	}
+	if updateRequest.Name != "" {
+		user.Name = updateRequest.Name
+	}
+	if updateRequest.PhoneNumber != "" {
+		user.PhoneNumber = updateRequest.PhoneNumber
+	}
+
+	// Encrypt pass
+	password, err := bcrypt.GenerateFromPassword([]byte(updateRequest.Password), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+	if updateRequest.Password != "" {
+		// Validate password length
+		if len(updateRequest.Password) < 8 || len(updateRequest.Password) > 255 {
+			return fiber.NewError(fiber.StatusBadRequest, "Password must be between 8 and 255 characters")
+		}
+		user.Password = string(password)
+	}
 
 	// Transaction stuffs
 	tx, err := s.DB.Begin()
@@ -193,9 +189,9 @@ func (s *UserService) handleUpdateUser(c *fiber.Ctx) error {
 	defer shared.CommitOrRollback(tx, err)
 
 	// Build n exec query
-	query := spew.Sprintf("UPDATE users SET email = ?, password = ?, updated_at = CURRENT_TIMESTAMP WHERE %s = ?", column)
+	query := spew.Sprintf("UPDATE users SET email = ?, name = ?, phone_number = ?, password = ?, updated_at = CURRENT_TIMESTAMP WHERE %s = ?", column)
 
-	result, err := tx.ExecContext(s.Ctx, query, user.Email, user.Password, target)
+	result, err := tx.ExecContext(s.Ctx, query, user.Email, user.Name, user.PhoneNumber, user.Password, target)
 
 	if err != nil {
 		slog.Info("Internal server error", "err", err)
@@ -271,4 +267,37 @@ func (s *UserService) handleVerifyEmail(c *fiber.Ctx) error {
 		"data":    nil,
 		"errors":  nil,
 	})
+}
+
+func (s *UserService) getUser(ctx context.Context, target string, column string) (*User, error) {
+	query := fmt.Sprintf("SELECT id, name, email, password, phone_number, email_verification_token, email_verified_at, created_at, updated_at FROM users WHERE %s = ?", column)
+
+	rows, err := s.DB.QueryContext(ctx, query, target)
+	if err != nil {
+		slog.Debug("Error occurred while querying user", "err", err)
+		return nil, err
+	}
+	defer rows.Close()
+
+	var user User
+	if !rows.Next() {
+		return nil, fiber.NewError(fiber.StatusNotFound, "User not found")
+	}
+
+	var emailVerificationToken sql.NullString
+	var emailVerifiedAt sql.NullTime
+	err = rows.Scan(&user.Id, &user.Name, &user.Email, &user.Password, &user.PhoneNumber, &emailVerificationToken, &emailVerifiedAt, &user.CreatedAt, &user.UpdatedAt)
+	if err != nil {
+		slog.Debug("Error occurred while scanning user", "err", err)
+		return nil, err
+	}
+
+	if emailVerificationToken.Valid {
+		user.EmailVerificationToken = emailVerificationToken.String
+	}
+	if emailVerifiedAt.Valid {
+		user.EmailVerifiedAt = emailVerifiedAt.Time
+	}
+
+	return &user, nil
 }

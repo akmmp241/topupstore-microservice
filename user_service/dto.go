@@ -9,8 +9,9 @@ type RegisterRequest struct {
 	EmailVerificationToken string `json:"email_verification_token" validate:"required"`
 }
 
-type ResetPasswordRequest struct {
-	ResetToken           string `json:"reset_token"`
-	Password             string `json:"password"`
-	PasswordConfirmation string `json:"password_confirmation"`
+type UpdateUserRequest struct {
+	Email       string `json:"email" validate:"required,email"`
+	Name        string `json:"name" validate:"required,min=2,max=255"`
+	PhoneNumber string `json:"phone_number" validate:"required,min=10,max=15"`
+	Password    string `json:"password" validate:"omitempty,min=8,max=255"`
 }
