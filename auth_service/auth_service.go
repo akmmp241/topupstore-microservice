@@ -36,6 +36,7 @@ func (s *AuthService) RegisterRoutes(router fiber.Router) {
 	router.Get("/verify/:token", s.handleVerifyEmail)
 	router.Post("/password", s.handleForgotPassword)
 	router.Patch("/password/:reset_token", s.handleResetPassword)
+	router.Get("/me", s.handleGetUser).Use(shared.JWTUserMiddleware)
 }
 
 func (s *AuthService) handleRegister(c *fiber.Ctx) error {
@@ -325,6 +326,55 @@ func (s *AuthService) handleResetPassword(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{
 		"message": "Password changed successfully",
 		"data":    nil,
+		"errors":  nil,
+	})
+}
+
+func (s *AuthService) handleGetUser(c *fiber.Ctx) error {
+	userId, err := shared.GetUserIdFromToken(c)
+	if err != nil {
+		slog.Error("Error occurred while getting user ID from token", "err", err)
+		return err
+	}
+
+	url := fmt.Sprintf("/users?id=%s", userId)
+	resp, err := CallUserService(url, fiber.MethodGet, nil)
+	if err != nil || len(resp.Errs) > 0 {
+		slog.Error("Error occurred while calling user service", "errs", resp.Errs)
+		slog.Error("Error occurred while calling user service", "err", err)
+		return fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
+	}
+
+	if resp.StatusCode == fiber.StatusNotFound {
+		slog.Error("User not found", "userId", userId)
+		return fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
+	}
+
+	if resp.StatusCode != fiber.StatusOK {
+		slog.Error("User service returned non-200 status code", "code", resp.StatusCode)
+		return fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
+	}
+
+	getUserResponse := &GetUserResponse{}
+	err = json.Unmarshal(resp.Body, getUserResponse)
+	if err != nil {
+		slog.Error("Error occurred while unmarshalling response body", "err", err)
+		return err
+	}
+
+	getResp := &GetResponse{
+		Id:              getUserResponse.Data.Id,
+		Name:            getUserResponse.Data.Name,
+		Email:           getUserResponse.Data.Email,
+		PhoneNumber:     getUserResponse.Data.PhoneNumber,
+		EmailVerifiedAt: getUserResponse.Data.EmailVerifiedAt,
+		CreatedAt:       getUserResponse.Data.CreatedAt,
+		UpdatedAt:       getUserResponse.Data.UpdatedAt,
+	}
+
+	return c.JSON(fiber.Map{
+		"message": "User retrieved successfully",
+		"data":    getResp,
 		"errors":  nil,
 	})
 }

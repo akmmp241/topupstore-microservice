@@ -123,7 +123,7 @@ func GetUserIdFromToken(c *fiber.Ctx) (string, error) {
 		return "", fiber.NewError(fiber.StatusUnauthorized, "Invalid token")
 	}
 
-	return claims.Claims.(jwt.RegisteredClaims).Subject, nil
+	return claims.Claims.GetSubject()
 }
 
 func GetTokenFromRequest(c *fiber.Ctx) (string, error) {

@@ -71,3 +71,13 @@ type UpdateUserRequest struct {
 	PhoneNumber string `json:"phone_number" validate:"required,min=10,max=15"`
 	Password    string `json:"password" validate:"omitempty,min=8,max=255"`
 }
+
+type GetResponse struct {
+	Id              int       `json:"id"`
+	Name            string    `json:"name"`
+	Email           string    `json:"email"`
+	PhoneNumber     string    `json:"phone_number"`
+	EmailVerifiedAt time.Time `json:"email_verified_at"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
+}
