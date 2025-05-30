@@ -185,8 +185,66 @@ func (p *ProductService) handleGetOperatorsByCategoryID(c *fiber.Ctx) error {
 }
 
 func (p *ProductService) handleGetOperators(c *fiber.Ctx) error {
-	// Implementation for getting all operators
-	return c.SendString("Get all operators")
+	afterStr := c.Query("after")
+	limitStr := c.Query("limit")
+
+	var afterID int
+	var err error
+	if afterStr != "" {
+		afterID, err = strconv.Atoi(afterStr)
+		if err != nil {
+			slog.Error("Invalid 'after' parameter", "error", err)
+			return fiber.NewError(fiber.StatusBadRequest, "Invalid 'after' parameter")
+		}
+	}
+
+	limit, err := strconv.Atoi(limitStr)
+	if err != nil || limit < 1 || limit > 100 {
+		limit = 10
+	}
+
+	tx, err := p.DB.Begin()
+	if err != nil {
+		slog.Error("Failed to begin transaction", "error", err)
+		return err
+	}
+	defer shared.CommitOrRollback(tx, err)
+
+	query := "SELECT id, ref_id, category_id, name, slug, image_url, description, created_at, updated_at FROM operators WHERE id > ? ORDER BY id LIMIT ?"
+
+	rows, err := p.DB.QueryContext(p.Ctx, query, afterID, limit)
+	if err != nil {
+		slog.Error("Failed to query operators", "error", err)
+		return err
+	}
+	defer rows.Close()
+
+	var operators []Operator
+	var lastID int
+	for rows.Next() {
+		var operator Operator
+		if err := rows.Scan(&operator.Id, &operator.RefId, &operator.CategoryId, &operator.Name, &operator.Slug, &operator.ImageUrl, &operator.Description, &operator.CreatedAt, &operator.UpdatedAt); err != nil {
+			slog.Error("Failed to scan operator row", "error", err)
+			return err
+		}
+		operators = append(operators, operator)
+		lastID = operator.Id
+	}
+
+	// Set the next page cursor
+	var nextCursor *int
+	if len(operators) == limit {
+		nextCursor = &lastID
+	}
+
+	return c.JSON(fiber.Map{
+		"message": "Operators retrieved successfully",
+		"data": fiber.Map{
+			"operators":   operators,
+			"next_cursor": nextCursor,
+		},
+		"errors": nil,
+	})
 }
 
 func (p *ProductService) handleGetOperatorByID(c *fiber.Ctx) error {
