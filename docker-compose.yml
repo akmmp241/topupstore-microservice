@@ -70,6 +70,24 @@ services:
     env_file:
       - .env
 
+  product_service:
+    build:
+      context: .
+      dockerfile: product_service/Dockerfile
+    restart: always
+    environment:
+      DB_NAME: ${MYSQL_DATABASE}
+      DB_USER: ${MYSQL_USER}
+      DB_PASSWORD: ${MYSQL_PASSWORD}
+      DB_HOST: ${MYSQL_HOST}
+      DB_PORT: ${MYSQL_PORT}
+      PRODUCT_SERVICE_HOST: ${PRODUCT_SERVICE_HOST}
+      SERVICE_JWT_SECRET_KEY: ${SERVICE_JWT_SECRET_KEY}
+    networks:
+      - akmalstore_net
+    env_file:
+      - .env
+
   db:
     image: mysql:8.4
     container_name: db_mysql
