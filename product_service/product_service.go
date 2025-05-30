@@ -284,8 +284,49 @@ func (p *ProductService) handleGetOperatorByID(c *fiber.Ctx) error {
 }
 
 func (p *ProductService) handleGetProductTypesByOperatorID(c *fiber.Ctx) error {
-	// Implementation for getting product types by operator ID
-	return c.SendString("Get product types by operator ID")
+	idStr := c.Params("id")
+	if idStr == "" {
+		return fiber.NewError(fiber.StatusBadRequest, "Operator ID is required")
+	}
+
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		slog.Error("Invalid operator ID", "error", err)
+		return fiber.NewError(fiber.StatusBadRequest, "Invalid operator ID")
+	}
+
+	tx, err := p.DB.Begin()
+	if err != nil {
+		slog.Error("Failed to begin transaction", "error", err)
+		return err
+	}
+	defer shared.CommitOrRollback(tx, err)
+
+	query := "SELECT id, ref_id, operator_id, name, format_form, created_at, updated_at FROM product_types WHERE operator_id = ?"
+	rows, err := p.DB.QueryContext(p.Ctx, query, id)
+	if err != nil {
+		slog.Error("Failed to query product types", "error", err)
+		return err
+	}
+	defer rows.Close()
+
+	var productTypes []ProductType
+	for rows.Next() {
+		var productType ProductType
+		if err := rows.Scan(&productType.Id, &productType.RefId, &productType.OperatorId, &productType.Name, &productType.FormatForm, &productType.CreatedAt, &productType.UpdatedAt); err != nil {
+			slog.Error("Failed to scan product type row", "error", err)
+			return err
+		}
+		productTypes = append(productTypes, productType)
+	}
+
+	return c.JSON(fiber.Map{
+		"message": "Product types retrieved successfully",
+		"data": fiber.Map{
+			"product_types": productTypes,
+		},
+		"errors": nil,
+	})
 }
 
 func (p *ProductService) handleGetProductTypes(c *fiber.Ctx) error {
