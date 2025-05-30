@@ -330,8 +330,66 @@ func (p *ProductService) handleGetProductTypesByOperatorID(c *fiber.Ctx) error {
 }
 
 func (p *ProductService) handleGetProductTypes(c *fiber.Ctx) error {
-	// Implementation for getting all product types
-	return c.SendString("Get all product types")
+	afterStr := c.Query("after")
+	limitStr := c.Query("limit")
+
+	var afterID int
+	var err error
+	if afterStr != "" {
+		afterID, err = strconv.Atoi(afterStr)
+		if err != nil {
+			slog.Error("Invalid 'after' parameter", "error", err)
+			return fiber.NewError(fiber.StatusBadRequest, "Invalid 'after' parameter")
+		}
+	}
+
+	limit, err := strconv.Atoi(limitStr)
+	if err != nil || limit < 1 || limit > 100 {
+		limit = 10
+	}
+
+	tx, err := p.DB.Begin()
+	if err != nil {
+		slog.Error("Failed to begin transaction", "error", err)
+		return err
+	}
+	defer shared.CommitOrRollback(tx, err)
+
+	query := "SELECT id, ref_id, operator_id, name, format_form, created_at, updated_at FROM product_types WHERE id > ? ORDER BY id LIMIT ?"
+
+	rows, err := p.DB.QueryContext(p.Ctx, query, afterID, limit)
+	if err != nil {
+		slog.Error("Failed to query product types", "error", err)
+		return err
+	}
+	defer rows.Close()
+
+	var productTypes []ProductType
+	var lastID int
+	for rows.Next() {
+		var productType ProductType
+		if err := rows.Scan(&productType.Id, &productType.RefId, &productType.OperatorId, &productType.Name, &productType.FormatForm, &productType.CreatedAt, &productType.UpdatedAt); err != nil {
+			slog.Error("Failed to scan product type row", "error", err)
+			return err
+		}
+		productTypes = append(productTypes, productType)
+		lastID = productType.Id
+	}
+
+	// Set the next page cursor
+	var nextCursor *int
+	if len(productTypes) == limit {
+		nextCursor = &lastID
+	}
+
+	return c.JSON(fiber.Map{
+		"message": "Product types retrieved successfully",
+		"data": fiber.Map{
+			"product_types": productTypes,
+			"next_cursor":   nextCursor,
+		},
+		"errors": nil,
+	})
 }
 
 func (p *ProductService) handleGetProductTypeByID(c *fiber.Ctx) error {
