@@ -139,8 +139,49 @@ func (p *ProductService) handleGetCategoryByID(c *fiber.Ctx) error {
 }
 
 func (p *ProductService) handleGetOperatorsByCategoryID(c *fiber.Ctx) error {
-	// Implementation for getting operators by category ID
-	return c.SendString("Get operators by category ID")
+	idStr := c.Params("id")
+	if idStr == "" {
+		return fiber.NewError(fiber.StatusBadRequest, "Category ID is required")
+	}
+
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		slog.Error("Invalid category ID", "error", err)
+		return fiber.NewError(fiber.StatusBadRequest, "Invalid category ID")
+	}
+
+	tx, err := p.DB.Begin()
+	if err != nil {
+		slog.Error("Failed to begin transaction", "error", err)
+		return err
+	}
+	defer shared.CommitOrRollback(tx, err)
+
+	query := "SELECT id, ref_id, category_id, name, slug, image_url, description, created_at, updated_at FROM operators WHERE category_id = ?"
+	rows, err := p.DB.QueryContext(p.Ctx, query, id)
+	if err != nil {
+		slog.Error("Failed to query operators", "error", err)
+		return err
+	}
+	defer rows.Close()
+
+	var operators []Operator
+	for rows.Next() {
+		var operator Operator
+		if err := rows.Scan(&operator.Id, &operator.RefId, &operator.CategoryId, &operator.Name, &operator.Slug, &operator.ImageUrl, &operator.Description, &operator.CreatedAt, &operator.UpdatedAt); err != nil {
+			slog.Error("Failed to scan operator row", "error", err)
+			return err
+		}
+		operators = append(operators, operator)
+	}
+
+	return c.JSON(fiber.Map{
+		"message": "Operators retrieved successfully",
+		"data": fiber.Map{
+			"operators": operators,
+		},
+		"errors": nil,
+	})
 }
 
 func (p *ProductService) handleGetOperators(c *fiber.Ctx) error {
