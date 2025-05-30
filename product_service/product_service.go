@@ -540,6 +540,39 @@ func (p *ProductService) handleGetProducts(c *fiber.Ctx) error {
 }
 
 func (p *ProductService) handleGetProductByID(c *fiber.Ctx) error {
-	// Implementation for getting a product by ID
-	return c.SendString("Get product by ID")
+	idStr := c.Params("id")
+	if idStr == "" {
+		return fiber.NewError(fiber.StatusBadRequest, "Product ID is required")
+	}
+
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		slog.Error("Invalid product ID", "error", err)
+		return fiber.NewError(fiber.StatusBadRequest, "Invalid product ID")
+	}
+
+	tx, err := p.DB.Begin()
+	if err != nil {
+		slog.Error("Failed to begin transaction", "error", err)
+		return err
+	}
+	defer shared.CommitOrRollback(tx, err)
+
+	query := "SELECT id, ref_id, product_type_id, name, description, image_url, created_at, updated_at FROM products WHERE id = ?"
+	row := p.DB.QueryRowContext(p.Ctx, query, id)
+
+	var product Product
+	if err := row.Scan(&product.Id, &product.RefId, &product.ProductTypeId, &product.Name, &product.Description, &product.ImageUrl, &product.CreatedAt, &product.UpdatedAt); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fiber.NewError(fiber.StatusNotFound, "Product not found")
+		}
+		slog.Error("Failed to scan product row", "error", err)
+		return err
+	}
+
+	return c.JSON(fiber.Map{
+		"message": "Product retrieved successfully",
+		"data":    product,
+		"errors":  nil,
+	})
 }
