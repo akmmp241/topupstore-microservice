@@ -393,8 +393,41 @@ func (p *ProductService) handleGetProductTypes(c *fiber.Ctx) error {
 }
 
 func (p *ProductService) handleGetProductTypeByID(c *fiber.Ctx) error {
-	// Implementation for getting a product type by ID
-	return c.SendString("Get product type by ID")
+	idStr := c.Params("id")
+	if idStr == "" {
+		return fiber.NewError(fiber.StatusBadRequest, "Product type ID is required")
+	}
+
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		slog.Error("Invalid product type ID", "error", err)
+		return fiber.NewError(fiber.StatusBadRequest, "Invalid product type ID")
+	}
+
+	tx, err := p.DB.Begin()
+	if err != nil {
+		slog.Error("Failed to begin transaction", "error", err)
+		return err
+	}
+	defer shared.CommitOrRollback(tx, err)
+
+	query := "SELECT id, ref_id, operator_id, name, format_form, created_at, updated_at FROM product_types WHERE id = ?"
+	row := p.DB.QueryRowContext(p.Ctx, query, id)
+
+	var productType ProductType
+	if err := row.Scan(&productType.Id, &productType.RefId, &productType.OperatorId, &productType.Name, &productType.FormatForm, &productType.CreatedAt, &productType.UpdatedAt); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fiber.NewError(fiber.StatusNotFound, "Product type not found")
+		}
+		slog.Error("Failed to scan product type row", "error", err)
+		return err
+	}
+
+	return c.JSON(fiber.Map{
+		"message": "Product type retrieved successfully",
+		"data":    productType,
+		"errors":  nil,
+	})
 }
 
 func (p *ProductService) handleGetProductsByProductTypeID(c *fiber.Ctx) error {
