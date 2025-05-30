@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"github.com/akmmp241/topupstore-microservice/shared"
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
@@ -98,8 +99,43 @@ func (p *ProductService) handleGetCategories(c *fiber.Ctx) error {
 }
 
 func (p *ProductService) handleGetCategoryByID(c *fiber.Ctx) error {
-	// Implementation for getting a category by ID
-	return c.SendString("Get category by ID")
+	idStr := c.Params("id")
+	if idStr == "" {
+		return fiber.NewError(fiber.StatusBadRequest, "Category ID is required")
+	}
+
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		slog.Error("Invalid category ID", "error", err)
+		return fiber.NewError(fiber.StatusBadRequest, "Invalid category ID")
+	}
+
+	tx, err := p.DB.Begin()
+	if err != nil {
+		slog.Error("Failed to begin transaction", "error", err)
+		return err
+	}
+	defer shared.CommitOrRollback(tx, err)
+
+	query := "SELECT id, ref_id, name, created_at, updated_at FROM categories WHERE id = ?"
+	row := p.DB.QueryRowContext(p.Ctx, query, id)
+
+	var category Category
+	if err := row.Scan(&category.Id, &category.RefId, &category.Name, &category.CreatedAt, &category.UpdatedAt); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fiber.NewError(fiber.StatusNotFound, "Category not found")
+		}
+		slog.Error("Failed to scan category row", "error", err)
+		return err
+	}
+
+	return c.JSON(fiber.Map{
+		"message": "Category retrieved successfully",
+		"data": fiber.Map{
+			"category": category,
+		},
+		"errors": nil,
+	})
 }
 
 func (p *ProductService) handleGetOperatorsByCategoryID(c *fiber.Ctx) error {
