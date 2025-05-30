@@ -477,8 +477,66 @@ func (p *ProductService) handleGetProductsByProductTypeID(c *fiber.Ctx) error {
 }
 
 func (p *ProductService) handleGetProducts(c *fiber.Ctx) error {
-	// Implementation for getting all products
-	return c.SendString("Get all products")
+	afterStr := c.Query("after")
+	limitStr := c.Query("limit")
+
+	var afterID int
+	var err error
+	if afterStr != "" {
+		afterID, err = strconv.Atoi(afterStr)
+		if err != nil {
+			slog.Error("Invalid 'after' parameter", "error", err)
+			return fiber.NewError(fiber.StatusBadRequest, "Invalid 'after' parameter")
+		}
+	}
+
+	limit, err := strconv.Atoi(limitStr)
+	if err != nil || limit < 1 || limit > 100 {
+		limit = 10
+	}
+
+	tx, err := p.DB.Begin()
+	if err != nil {
+		slog.Error("Failed to begin transaction", "error", err)
+		return err
+	}
+	defer shared.CommitOrRollback(tx, err)
+
+	query := "SELECT id, ref_id, product_type_id, name, description, image_url, created_at, updated_at FROM products WHERE id > ? ORDER BY id LIMIT ?"
+
+	rows, err := p.DB.QueryContext(p.Ctx, query, afterID, limit)
+	if err != nil {
+		slog.Error("Failed to query products", "error", err)
+		return err
+	}
+	defer rows.Close()
+
+	var products []Product
+	var lastID int
+	for rows.Next() {
+		var product Product
+		if err := rows.Scan(&product.Id, &product.RefId, &product.ProductTypeId, &product.Name, &product.Description, &product.ImageUrl, &product.CreatedAt, &product.UpdatedAt); err != nil {
+			slog.Error("Failed to scan product row", "error", err)
+			return err
+		}
+		products = append(products, product)
+		lastID = product.Id
+	}
+
+	// Set the next page cursor
+	var nextCursor *int
+	if len(products) == limit {
+		nextCursor = &lastID
+	}
+
+	return c.JSON(fiber.Map{
+		"message": "Products retrieved successfully",
+		"data": fiber.Map{
+			"products":    products,
+			"next_cursor": nextCursor,
+		},
+		"errors": nil,
+	})
 }
 
 func (p *ProductService) handleGetProductByID(c *fiber.Ctx) error {
