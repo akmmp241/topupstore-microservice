@@ -131,10 +131,8 @@ func (p *ProductService) handleGetCategoryByID(c *fiber.Ctx) error {
 
 	return c.JSON(fiber.Map{
 		"message": "Category retrieved successfully",
-		"data": fiber.Map{
-			"category": category,
-		},
-		"errors": nil,
+		"data":    category,
+		"errors":  nil,
 	})
 }
 
@@ -248,8 +246,41 @@ func (p *ProductService) handleGetOperators(c *fiber.Ctx) error {
 }
 
 func (p *ProductService) handleGetOperatorByID(c *fiber.Ctx) error {
-	// Implementation for getting an operator by ID
-	return c.SendString("Get operator by ID")
+	idStr := c.Params("id")
+	if idStr == "" {
+		return fiber.NewError(fiber.StatusBadRequest, "Operator ID is required")
+	}
+
+	id, err := strconv.Atoi(idStr)
+	if err != nil {
+		slog.Error("Invalid operator ID", "error", err)
+		return fiber.NewError(fiber.StatusBadRequest, "Invalid operator ID")
+	}
+
+	tx, err := p.DB.Begin()
+	if err != nil {
+		slog.Error("Failed to begin transaction", "error", err)
+		return err
+	}
+	defer shared.CommitOrRollback(tx, err)
+
+	query := "SELECT id, ref_id, category_id, name, slug, image_url, description, created_at, updated_at FROM operators WHERE id = ?"
+	row := p.DB.QueryRowContext(p.Ctx, query, id)
+
+	var operator Operator
+	if err := row.Scan(&operator.Id, &operator.RefId, &operator.CategoryId, &operator.Name, &operator.Slug, &operator.ImageUrl, &operator.Description, &operator.CreatedAt, &operator.UpdatedAt); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fiber.NewError(fiber.StatusNotFound, "Operator not found")
+		}
+		slog.Error("Failed to scan operator row", "error", err)
+		return err
+	}
+
+	return c.JSON(fiber.Map{
+		"message": "Operator retrieved successfully",
+		"data":    operator,
+		"errors":  nil,
+	})
 }
 
 func (p *ProductService) handleGetProductTypesByOperatorID(c *fiber.Ctx) error {
