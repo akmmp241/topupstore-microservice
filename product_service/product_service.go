@@ -3,8 +3,11 @@ package main
 import (
 	"context"
 	"database/sql"
+	"github.com/akmmp241/topupstore-microservice/shared"
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
+	"log/slog"
+	"strconv"
 )
 
 type ProductService struct {
@@ -32,8 +35,66 @@ func (p *ProductService) RegisterRoutes(route fiber.Router) {
 }
 
 func (p *ProductService) handleGetCategories(c *fiber.Ctx) error {
-	// Implementation for getting categories
-	return c.SendString("Get categories")
+	afterStr := c.Query("after")
+	limitStr := c.Query("limit")
+
+	var afterID int
+	var err error
+	if afterStr != "" {
+		afterID, err = strconv.Atoi(afterStr)
+		if err != nil {
+			slog.Error("Invalid 'after' parameter", "error", err)
+			return fiber.NewError(fiber.StatusBadRequest, "Invalid 'after' parameter")
+		}
+	}
+
+	limit, err := strconv.Atoi(limitStr)
+	if err != nil || limit < 1 || limit > 100 {
+		limit = 10
+	}
+
+	tx, err := p.DB.Begin()
+	if err != nil {
+		slog.Error("Failed to begin transaction", "error", err)
+		return err
+	}
+	defer shared.CommitOrRollback(tx, err)
+
+	query := "SELECT id, ref_id, name, created_at, updated_at FROM categories WHERE id > ? ORDER BY id LIMIT ?"
+
+	rows, err := p.DB.QueryContext(p.Ctx, query, afterID, limit)
+	if err != nil {
+		slog.Error("Failed to query categories", "error", err)
+		return err
+	}
+	defer rows.Close()
+
+	var categories []Category
+	var lastID int
+	for rows.Next() {
+		var category Category
+		if err := rows.Scan(&category.Id, &category.RefId, &category.Name, &category.CreatedAt, &category.UpdatedAt); err != nil {
+			slog.Error("Failed to scan category row", "error", err)
+			return err
+		}
+		categories = append(categories, category)
+		lastID = category.Id
+	}
+
+	// Set the next page cursor
+	var nextCursor *int
+	if len(categories) == limit {
+		nextCursor = &lastID
+	}
+
+	return c.JSON(fiber.Map{
+		"message": "Categories retrieved successfully",
+		"data": fiber.Map{
+			"categories":  categories,
+			"next_cursor": nextCursor,
+		},
+		"errors": nil,
+	})
 }
 
 func (p *ProductService) handleGetCategoryByID(c *fiber.Ctx) error {
