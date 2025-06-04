@@ -558,11 +558,11 @@ func (p *ProductService) handleGetProductByID(c *fiber.Ctx) error {
 	}
 	defer shared.CommitOrRollback(tx, err)
 
-	query := "SELECT id, ref_id, product_type_id, name, description, image_url, created_at, updated_at FROM products WHERE id = ?"
+	query := "SELECT id, ref_id, product_type_id, name, description, image_url, price, created_at, updated_at FROM products WHERE id = ?"
 	row := p.DB.QueryRowContext(p.Ctx, query, id)
 
 	var product Product
-	if err := row.Scan(&product.Id, &product.RefId, &product.ProductTypeId, &product.Name, &product.Description, &product.ImageUrl, &product.CreatedAt, &product.UpdatedAt); err != nil {
+	if err := row.Scan(&product.Id, &product.RefId, &product.ProductTypeId, &product.Name, &product.Description, &product.ImageUrl, &product.Price, &product.CreatedAt, &product.UpdatedAt); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return fiber.NewError(fiber.StatusNotFound, "Product not found")
 		}
