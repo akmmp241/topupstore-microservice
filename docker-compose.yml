@@ -82,7 +82,56 @@ services:
       DB_HOST: ${MYSQL_HOST}
       DB_PORT: ${MYSQL_PORT}
       PRODUCT_SERVICE_HOST: ${PRODUCT_SERVICE_HOST}
+      PRODUCT_SERVICE_PORT: ${PRODUCT_SERVICE_PORT}
       SERVICE_JWT_SECRET_KEY: ${SERVICE_JWT_SECRET_KEY}
+    networks:
+      - akmalstore_net
+    env_file:
+      - .env
+
+  order_service:
+    build:
+      context: .
+      dockerfile: order_service/Dockerfile
+    restart: always
+    environment:
+      DB_NAME: ${MYSQL_DATABASE}
+      DB_USER: ${MYSQL_USER}
+      DB_PASSWORD: ${MYSQL_PASSWORD}
+      DB_HOST: ${MYSQL_HOST}
+      DB_PORT: ${MYSQL_PORT}
+      KAFKA_HOST: ${KAFKA_HOST}
+      KAFKA_PORT: ${KAFKA_PORT}
+      USER_SERVICE_HOST: ${USER_SERVICE_HOST}
+      USER_SERVICE_PORT: ${USER_SERVICE_PORT}
+      PRODUCT_SERVICE_HOST: ${PRODUCT_SERVICE_HOST}
+      PRODUCT_SERVICE_PORT: ${PRODUCT_SERVICE_PORT}
+      PAYMENT_SERVICE_HOST: ${PAYMENT_SERVICE_HOST}
+      PAYMENT_SERVICE_PORT: ${PAYMENT_SERVICE_PORT}
+      SERVICE_JWT_SECRET_KEY: ${SERVICE_JWT_SECRET_KEY}
+    networks:
+      - akmalstore_net
+    env_file:
+      - .env
+
+  payment_service:
+    build:
+      context: .
+      dockerfile: payment_service/Dockerfile
+    restart: always
+    environment:
+      DB_NAME: ${MYSQL_DATABASE}
+      DB_USER: ${MYSQL_USER}
+      DB_PASSWORD: ${MYSQL_PASSWORD}
+      DB_HOST: ${MYSQL_HOST}
+      DB_PORT: ${MYSQL_PORT}
+      KAFKA_HOST: ${KAFKA_HOST}
+      KAFKA_PORT: ${KAFKA_PORT}
+      PAYMENT_SERVICE_HOST: ${PAYMENT_SERVICE_HOST}
+      PAYMENT_SERVICE_PORT: ${PAYMENT_SERVICE_PORT}
+      SERVICE_JWT_SECRET_KEY: ${SERVICE_JWT_SECRET_KEY}
+      XENDIT_API_KEY: ${XENDIT_API_KEY}
+      XENDIT_API_URL: ${XENDIT_API_URL}
     networks:
       - akmalstore_net
     env_file:

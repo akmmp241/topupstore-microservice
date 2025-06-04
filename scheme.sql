@@ -105,3 +105,30 @@ VALUES ('PRD001', 1, '10 USD Credit', 'Phone credit worth 10 USD', 'https://exam
        ('PRD002', 1, '20 USD Credit', 'Phone credit worth 20 USD', 'https://example.com/credit20.jpg', 2000),
        ('PRD003', 2, '5GB Data Pack', '5GB data valid for 30 days', 'https://example.com/data5gb.jpg', 1500),
        ('PRD004', 3, 'Fiber 100Mbps', '100Mbps fiber internet package', 'https://example.com/fiber100.jpg', 5000);
+
+create table orders
+(
+    id                   varchar(255) primary key,
+    buyer_id             bigint                                 not null,
+    buyer_email          varchar(255) default null              null,
+    buyer_phone          varchar(255)                           not null,
+    product_id           bigint                                 not null,
+    product_name         varchar(255)                           not null,
+    destination          varchar(255)                           not null,
+    server_id            varchar(255)                           not null,
+    payment_method_id    varchar(255)                           not null,
+    payment_method_name  varchar(255)                           not null,
+    total_product_amount int                                    not null,
+    service_charge       int                                    not null,
+    total_amount         int                                    not null,
+    status               varchar(50)                            not null,
+    created_at           timestamp    default CURRENT_TIMESTAMP not null,
+    updated_at           timestamp    default CURRENT_TIMESTAMP not null on update CURRENT_TIMESTAMP
+)
+    engine = innodb;
+
+alter table orders modify column buyer_id bigint default null null;
+
+alter table orders modify column buyer_email varchar(255) not null;
+alter table orders modify column buyer_phone varchar(255) default null null;
+alter table orders add column failure_code varchar(50) default null null after status;
