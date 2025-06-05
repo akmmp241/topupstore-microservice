@@ -15,6 +15,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 )
 
 type OrderService struct {
@@ -318,22 +319,23 @@ func (o *OrderService) handleCreateOrders(c *fiber.Ctx) error {
 
 	orderData.ProductId = product.Id
 	orderData.ProductName = product.Name
-	orderData.TotalProductAmount += product.Price
+	orderData.TotalProductAmount = product.Price
 	orderData.PaymentMethodId = paymentMethod.PaymentMethodId
 	orderData.PaymentMethodName = paymentMethod.PaymentMethodName
 
 	// calculate the total amount of service charge, payment method charge and product price
 	// if the service charge is less than 1, it means it's a percentage
 	if paymentMethod.ServiceCharge < 1 {
-		orderData.ServiceCharge += (orderData.TotalProductAmount + orderData.ServiceCharge) * paymentMethod.ServiceCharge
-		orderData.TotalAmount += (orderData.TotalProductAmount + orderData.ServiceCharge) + orderData.ServiceCharge
+		orderData.ServiceCharge = (orderData.TotalProductAmount + orderData.ServiceCharge) * paymentMethod.ServiceCharge
+		orderData.TotalAmount = orderData.TotalProductAmount + orderData.ServiceCharge
 	} else {
 		orderData.ServiceCharge += paymentMethod.ServiceCharge
-		orderData.TotalAmount += orderData.TotalProductAmount + orderData.ServiceCharge + orderData.ServiceCharge
+		orderData.TotalAmount += orderData.TotalProductAmount + orderData.ServiceCharge
 	}
 
 	orderData.Status = paymentResponse.Status
 	orderData.FailureCode = paymentResponse.FailureCode
+	orderData.CreatedAt = time.Now()
 
 	tx, err := o.DB.Begin()
 	if err != nil {
@@ -344,7 +346,7 @@ func (o *OrderService) handleCreateOrders(c *fiber.Ctx) error {
 
 	query := `INSERT INTO orders (id, product_id, product_name, destination, server_id, buyer_id, buyer_email, 
 					buyer_phone, payment_method_id, payment_method_name, service_charge, total_product_amount, total_amount, 
-					status, failure_code) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+					status, failure_code, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 	result, err := tx.ExecContext(o.Ctx, query,
 		orderData.Id,
@@ -362,6 +364,8 @@ func (o *OrderService) handleCreateOrders(c *fiber.Ctx) error {
 		orderData.TotalAmount,
 		orderData.Status,
 		orderData.FailureCode,
+		orderData.CreatedAt,
+		orderData.CreatedAt, // assuming updated_at is the same as created_at for new orders
 	)
 
 	if err != nil {
