@@ -36,8 +36,41 @@ func (o *OrderService) RegisterRoutes(app fiber.Router) {
 
 func (o *OrderService) handleGetOrders(c *fiber.Ctx) error {
 
+	tx, err := o.DB.Begin()
+	if err != nil {
+		slog.Error("Error occurred while starting transaction", "err", err)
+		return err
+	}
+	defer shared.CommitOrRollback(tx, nil)
+
+	query := `SELECT id, buyer_id, buyer_email, buyer_phone, product_id, product_name, destination, server_id, payment_method_id, 
+       payment_method_name, total_product_amount, service_charge, total_amount, status, failure_code, created_at, updated_at FROM orders`
+
+	rows, err := tx.QueryContext(o.Ctx, query)
+	if err != nil {
+		slog.Error("Error occurred while querying orders", "err", err)
+		return err
+	}
+	defer rows.Close()
+
+	var orders []Order
+	for rows.Next() {
+		var order Order
+		err := rows.Scan(&order.Id, &order.BuyerId, &order.BuyerEmail, &order.BuyerPhone, &order.ProductId,
+			&order.ProductName, &order.Destination, &order.ServerId, &order.PaymentMethodId,
+			&order.PaymentMethodName, &order.TotalProductAmount, &order.ServiceCharge,
+			&order.TotalAmount, &order.Status, &order.FailureCode, &order.CreatedAt, &order.UpdatedAt)
+		if err != nil {
+			slog.Error("Error occurred while scanning order row", "err", err)
+			return err
+		}
+		orders = append(orders, order)
+	}
+
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{
-		"message": "Get orders endpoint",
+		"message": "Orders retrieved successfully",
+		"data":    orders,
+		"errors":  nil,
 	})
 }
 
