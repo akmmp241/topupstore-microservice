@@ -25,7 +25,7 @@ func NewAppServer() *AppServer {
 }
 
 func (a *AppServer) RunConsumer(wg *sync.WaitGroup) {
-	wg.Add(3)
+	wg.Add(4)
 
 	go func() {
 		slog.Info("Starting User Registration Consumer")
@@ -42,6 +42,12 @@ func (a *AppServer) RunConsumer(wg *sync.WaitGroup) {
 	go func() {
 		slog.Info("Starting Forgot Password Consumer")
 		a.Consumer.StartForgotPasswordConsumer(a.EmailService.HandleForgotPassword)
+		defer wg.Done()
+	}()
+
+	go func() {
+		slog.Info("Starting New Order Consumer")
+		a.Consumer.StartNewOrderConsumer(a.EmailService.HandleNewOrder)
 		defer wg.Done()
 	}()
 }

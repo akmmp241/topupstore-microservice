@@ -15,6 +15,7 @@ type KafkaConsumer struct {
 	UserRegistrationReader *kafka.Reader
 	UserLoginReader        *kafka.Reader
 	ForgotPasswordReader   *kafka.Reader
+	NewOrderReader         *kafka.Reader
 	EmailService           *EmailService
 }
 
@@ -33,6 +34,7 @@ func NewKafkaConsumer(bootstrapServer string, groupId string) *KafkaConsumer {
 		UserRegistrationReader: initUserRegistrationReader(kafkaConfig),
 		UserLoginReader:        initUserLoginReader(kafkaConfig),
 		ForgotPasswordReader:   initForgotPasswordReader(kafkaConfig),
+		NewOrderReader:         initNewOrderReader(kafkaConfig),
 	}
 }
 
@@ -49,6 +51,11 @@ func initUserLoginReader(cfg *KafkaConfig) *kafka.Reader {
 func initForgotPasswordReader(cfg *KafkaConfig) *kafka.Reader {
 	defer slog.Info("Kafka Consumer created with", "topic:", "forgot-password", "group-id:", cfg.GroupId)
 	return shared.NewKafkaConsumer(cfg.GroupId, "forget-password")
+}
+
+func initNewOrderReader(cfg *KafkaConfig) *kafka.Reader {
+	defer slog.Info("Kafka Consumer created with", "topic:", "new-order", "group-id:", cfg.GroupId)
+	return shared.NewKafkaConsumer(cfg.GroupId, "new_order")
 }
 
 func (c *KafkaConsumer) StartUserRegistrationConsumer(handler HandlerKafka) {
@@ -102,6 +109,29 @@ func (c *KafkaConsumer) StartForgotPasswordConsumer(handler HandlerKafka) {
 	defer c.ForgotPasswordReader.Close()
 	for {
 		message, err := c.ForgotPasswordReader.ReadMessage(context.Background())
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				slog.Warn("Reached EOF, possibly no messages yet.")
+				continue
+			}
+			slog.Error("Error while reading", "error:", err)
+			break
+		}
+
+		err = handler(&message)
+		if err != nil {
+			slog.Error("Error while handling message", "error:", err)
+			continue
+		}
+
+		slog.Debug("Received message", "message:", string(message.Value), "key", string(message.Key))
+	}
+}
+
+func (c *KafkaConsumer) StartNewOrderConsumer(handler HandlerKafka) {
+	defer c.NewOrderReader.Close()
+	for {
+		message, err := c.NewOrderReader.ReadMessage(context.Background())
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				slog.Warn("Reached EOF, possibly no messages yet.")
