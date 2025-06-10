@@ -132,3 +132,4 @@ alter table orders modify column buyer_id bigint default null null;
 alter table orders modify column buyer_email varchar(255) not null;
 alter table orders modify column buyer_phone varchar(255) default null null;
 alter table orders add column failure_code varchar(50) default null null after status;
+alter table orders add column payment_reference_id varchar(255) default null null after id;

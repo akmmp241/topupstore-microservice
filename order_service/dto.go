@@ -46,3 +46,33 @@ type GetResponse[T interface{}] struct {
 	Data    T      `json:"data"`
 	Errors  any    `json:"errors"`
 }
+
+type EwalletActions struct {
+	Action  string `json:"action" validate:"required"`
+	Url     string `json:"url" validate:"required"`
+	UrlType string `json:"url_type" validate:"required"`
+	Method  string `json:"method" validate:"required"`
+}
+
+type VirtualAccountActions struct {
+	VirtualAccountNumber string `json:"virtual_account_number" validate:"required"`
+}
+
+type QrCodeActions struct {
+	QrCodeString string `json:"qr_code_string" validate:"required"`
+}
+
+type PaymentActions struct {
+	Ewallet        *EwalletActions        `json:"ewallet,omitempty"`
+	VirtualAccount *VirtualAccountActions `json:"virtual_account,omitempty"`
+	QrCode         *QrCodeActions         `json:"qr_code,omitempty"`
+}
+
+type GetPaymentByIdResponse struct {
+	XenditPaymentId string         `json:"xendit_payment_id" validate:"required"`
+	Amount          float64        `json:"amount" validate:"required"`
+	Status          string         `json:"status" validate:"required"`
+	Actions         PaymentActions `json:"actions" validate:"required"`
+	Created         time.Time      `json:"created" validate:"required"`
+	Updated         time.Time      `json:"updated" validate:"required"`
+}

@@ -4,6 +4,7 @@ import "time"
 
 type Order struct {
 	Id                 string    `json:"id"`
+	PaymentReferenceId string    `json:"payment_reference_id"`
 	BuyerId            int       `json:"buyer_id"`
 	BuyerEmail         string    `json:"buyer_email"`
 	BuyerPhone         string    `json:"buyer_phone"`

@@ -31,6 +31,7 @@ func NewOrderService(DB *sql.DB, validate *validator.Validate, producer *KafkaPr
 
 func (o *OrderService) RegisterRoutes(app fiber.Router) {
 	app.Get("/orders", o.handleGetOrders)
+	app.Get("/orders/:id", o.handleGetOrderById)
 	app.Post("/orders", o.handleCreateOrders)
 }
 
@@ -71,6 +72,113 @@ func (o *OrderService) handleGetOrders(c *fiber.Ctx) error {
 		"message": "Orders retrieved successfully",
 		"data":    orders,
 		"errors":  nil,
+	})
+}
+
+func (o *OrderService) handleGetOrderById(c *fiber.Ctx) error {
+
+	orderId := c.Params("id")
+	if orderId == "" {
+		return fiber.NewError(fiber.StatusBadRequest, "Order ID is required")
+	}
+
+	tx, err := o.DB.Begin()
+	if err != nil {
+		slog.Error("Error occurred while starting transaction", "err", err)
+		return err
+	}
+	defer shared.CommitOrRollback(tx, nil)
+
+	query := `SELECT id, payment_reference_id, buyer_id, buyer_email, buyer_phone, product_id, product_name, destination, server_id, payment_method_id, 
+	   payment_method_name, total_product_amount, service_charge, total_amount, status, failure_code, created_at, updated_at FROM orders WHERE id = ?`
+
+	row := tx.QueryRowContext(o.Ctx, query, orderId)
+
+	var order Order
+	err = row.Scan(&order.Id, &order.PaymentReferenceId, &order.BuyerId, &order.BuyerEmail, &order.BuyerPhone,
+		&order.ProductId, &order.ProductName, &order.Destination,
+		&order.ServerId, &order.PaymentMethodId,
+		&order.PaymentMethodName, &order.TotalProductAmount,
+		&order.ServiceCharge, &order.TotalAmount,
+		&order.Status, &order.FailureCode,
+		&order.CreatedAt, &order.UpdatedAt)
+
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fiber.NewError(fiber.StatusNotFound, "Order not found")
+		}
+		slog.Error("Error occurred while scanning order row", "err", err)
+		return err
+	}
+
+	paymentServiceErrChan := make(chan error, 1)
+	getPaymentByIdResponse := make(chan *GetPaymentByIdResponse, 1)
+	defer close(getPaymentByIdResponse)
+
+	go func() {
+		defer close(paymentServiceErrChan)
+
+		paymentServiceHost := os.Getenv("PAYMENT_SERVICE_HOST")
+		paymentServicePort := os.Getenv("PAYMENT_SERVICE_PORT")
+		url := fmt.Sprintf("/payments/%s", order.PaymentReferenceId)
+		paymentServiceResponse, err := shared.CallService(paymentServiceHost, paymentServicePort, url, fiber.MethodGet, nil)
+
+		if err != nil || len(paymentServiceResponse.Errs) > 0 {
+			slog.Error("Error occurred while calling payment service", "errs", paymentServiceResponse.Errs)
+			slog.Error("Error occurred while calling payment service", "err", err)
+			paymentServiceErrChan <- fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
+			return
+		}
+
+		if paymentServiceResponse.StatusCode != fiber.StatusOK {
+			slog.Error("payment service returned non-200 status code", "code", paymentServiceResponse.StatusCode)
+			paymentServiceErrChan <- fiber.NewError(paymentServiceResponse.StatusCode, string(paymentServiceResponse.Body))
+			return
+		}
+
+		var paymentResponse GetResponse[GetPaymentByIdResponse]
+		err = json.Unmarshal(paymentServiceResponse.Body, &paymentResponse)
+		if err != nil {
+			slog.Error("Error occurred while unmarshalling payment response", "err", err)
+			paymentServiceErrChan <- fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
+			return
+		}
+
+		getPaymentByIdResponse <- &paymentResponse.Data
+		paymentServiceErrChan <- nil
+	}()
+
+	if err = <-paymentServiceErrChan; err != nil {
+		slog.Error("Error occurred while getting payment details", "error", err)
+		return err
+	}
+
+	paymentResponse := <-getPaymentByIdResponse
+
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+		"message": "Order retrieved successfully",
+		"data": fiber.Map{
+			"id":                   order.Id,
+			"payment_reference_id": order.PaymentReferenceId,
+			"buyer_id":             order.BuyerId,
+			"buyer_email":          order.BuyerEmail,
+			"buyer_phone":          order.BuyerPhone,
+			"product_id":           order.ProductId,
+			"product_name":         order.ProductName,
+			"destination":          order.Destination,
+			"server_id":            order.ServerId,
+			"payment_method_id":    order.PaymentMethodId,
+			"payment_method_name":  order.PaymentMethodName,
+			"total_product_amount": order.TotalProductAmount,
+			"service_charge":       order.ServiceCharge,
+			"total_amount":         order.TotalAmount,
+			"status":               order.Status,
+			"failure_code":         order.FailureCode,
+			"created_at":           order.CreatedAt,
+			"updated_at":           order.UpdatedAt,
+			"payment_details":      paymentResponse,
+		},
+		"errors": nil,
 	})
 }
 
@@ -351,6 +459,7 @@ func (o *OrderService) handleCreateOrders(c *fiber.Ctx) error {
 	}
 
 	orderData.ProductId = product.Id
+	orderData.PaymentReferenceId = paymentResponse.XenditPaymentId
 	orderData.ProductName = product.Name
 	orderData.TotalProductAmount = product.Price
 	orderData.PaymentMethodId = paymentMethod.PaymentMethodId
@@ -377,12 +486,13 @@ func (o *OrderService) handleCreateOrders(c *fiber.Ctx) error {
 	}
 	defer shared.CommitOrRollback(tx, err)
 
-	query := `INSERT INTO orders (id, product_id, product_name, destination, server_id, buyer_id, buyer_email, 
+	query := `INSERT INTO orders (id, payment_reference_id, product_id, product_name, destination, server_id, buyer_id, buyer_email, 
 					buyer_phone, payment_method_id, payment_method_name, service_charge, total_product_amount, total_amount, 
-					status, failure_code, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+					status, failure_code, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 	result, err := tx.ExecContext(o.Ctx, query,
 		orderData.Id,
+		orderData.PaymentReferenceId,
 		orderData.ProductId,
 		orderData.ProductName,
 		orderData.Destination,
