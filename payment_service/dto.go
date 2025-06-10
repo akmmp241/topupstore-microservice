@@ -18,15 +18,17 @@ type CreatePaymentResponse struct {
 }
 
 type XenditPaymentRequestResponse struct {
-	Id          string `json:"id" validate:"required"`
-	ReferenceId string `json:"reference_id" validate:"required"`
-	Status      string `json:"status" validate:"required"`
-	Amount      int64  `json:"amount" validate:"required"`
-	Country     string `json:"country" validate:"required"`
-	Currency    string `json:"currency" validate:"required"`
-	Created     string `json:"created" validate:"required"`
-	Updated     string `json:"updated" validate:"required"`
-	FailureCode string `json:"failure_code"`
+	Id            string              `json:"id" validate:"required"`
+	ReferenceId   string              `json:"reference_id" validate:"required"`
+	Status        string              `json:"status" validate:"required"`
+	Amount        float64             `json:"amount" validate:"required"`
+	Country       string              `json:"country" validate:"required"`
+	Currency      string              `json:"currency" validate:"required"`
+	PaymentMethod XenditPaymentMethod `json:"payment_method" validate:"required"`
+	Actions       []EwalletActions    `json:"actions" validate:"required"`
+	Created       time.Time           `json:"created" validate:"required"`
+	Updated       time.Time           `json:"updated" validate:"required"`
+	FailureCode   string              `json:"failure_code"`
 }
 
 type XenditCustomerIndividualDetail struct {
@@ -51,8 +53,9 @@ type Ewallet struct {
 }
 
 type VirtualAccountChannelProperties struct {
-	CustomerName string    `json:"customer_name" validate:"required"`
-	ExpiresAt    time.Time `json:"expires_at" validate:"required"`
+	CustomerName         string    `json:"customer_name" validate:"required"`
+	ExpiresAt            time.Time `json:"expires_at" validate:"required"`
+	VirtualAccountNumber string    `json:"virtual_account_number,omitempty"`
 }
 
 type VirtualAccount struct {
@@ -62,6 +65,7 @@ type VirtualAccount struct {
 
 type QrCodeChannelProperties struct {
 	ExpiresAt time.Time `json:"expires_at" validate:"required"`
+	QrString  string    `json:"qr_string,omitempty"`
 }
 
 type QrCode struct {
@@ -82,4 +86,34 @@ type XenditRequestBody struct {
 	ReferenceId   string              `json:"reference_id" validate:"required"`
 	Customer      XenditCustomer      `json:"customer" validate:"required"`
 	PaymentMethod XenditPaymentMethod `json:"payment_method" validate:"required"`
+}
+
+type EwalletActions struct {
+	Action  string `json:"action" validate:"required"`
+	Url     string `json:"url" validate:"required"`
+	UrlType string `json:"url_type" validate:"required"`
+	Method  string `json:"method" validate:"required"`
+}
+
+type VirtualAccountActions struct {
+	VirtualAccountNumber string `json:"virtual_account_number" validate:"required"`
+}
+
+type QrCodeActions struct {
+	QrCodeString string `json:"qr_code_string" validate:"required"`
+}
+
+type PaymentActions struct {
+	Ewallet        *EwalletActions        `json:"ewallet"`
+	VirtualAccount *VirtualAccountActions `json:"virtual_account"`
+	QrCode         *QrCodeActions         `json:"qr_code"`
+}
+
+type GetPaymentByIdResponse struct {
+	XenditPaymentId string         `json:"xendit_payment_id" validate:"required"`
+	Amount          float64        `json:"amount" validate:"required"`
+	Status          string         `json:"status" validate:"required"`
+	Actions         PaymentActions `json:"actions" validate:"required"`
+	Created         time.Time      `json:"created" validate:"required"`
+	Updated         time.Time      `json:"updated" validate:"required"`
 }

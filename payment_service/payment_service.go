@@ -107,11 +107,6 @@ func (p *PaymentService) CreatePayment(c *fiber.Ctx) error {
 		}
 	}
 
-	bytes, _ := json.Marshal(xenditRequestBody)
-	slog.Info("Request body", "requestBody", string(bytes))
-
-	slog.Info("Creating payment request with Xendit", "requestBody", xenditRequestBody.PaymentMethod.VirtualAccount)
-
 	xenditApiKey := os.Getenv("XENDIT_API_KEY") + ":"
 	xenditApiKeyBase64 := base64.StdEncoding.EncodeToString([]byte(xenditApiKey))
 	xenditHost := os.Getenv("XENDIT_API_URL")
@@ -152,6 +147,108 @@ func (p *PaymentService) CreatePayment(c *fiber.Ctx) error {
 }
 
 func (p *PaymentService) GetPayment(c *fiber.Ctx) error {
-	// Implementation for getting a payment
-	return c.SendString("Get Payment")
+
+	paymentId := c.Params("id")
+	if paymentId == "" {
+		slog.Error("Payment ID is required", "error", "Payment ID cannot be empty")
+		return fiber.NewError(fiber.StatusBadRequest, "Payment ID cannot be empty")
+	}
+
+	getPaymentErrChan := make(chan error, 1)
+	defer close(getPaymentErrChan)
+
+	paymentResponseChan := make(chan *XenditPaymentRequestResponse, 1)
+	go func() {
+		defer close(paymentResponseChan)
+
+		xenditApiKey := os.Getenv("XENDIT_API_KEY") + ":"
+		xenditApiKeyBase64 := base64.StdEncoding.EncodeToString([]byte(xenditApiKey))
+		xenditHost := os.Getenv("XENDIT_API_URL")
+		paymentReqUrl := fmt.Sprintf("%s/payment_requests/%s", xenditHost, paymentId)
+
+		agent := fiber.Get(paymentReqUrl).Timeout(15*time.Second).
+			Add("Authorization", fmt.Sprintf("Basic %s", xenditApiKeyBase64))
+
+		statusCode, respByte, errs := agent.Bytes()
+
+		if len(errs) > 0 {
+			slog.Error("Error occurred while calling xendit payment request api", "errs", errs, "resp", string(respByte))
+			getPaymentErrChan <- fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
+			return
+		}
+
+		if statusCode >= 300 {
+			slog.Error("xendit payment request api returned non-200 status code", "code", statusCode, "resp", string(respByte))
+			getPaymentErrChan <- fiber.NewError(statusCode, string(respByte))
+		}
+
+		var paymentRequestResponse XenditPaymentRequestResponse
+		err := json.Unmarshal(respByte, &paymentRequestResponse)
+		if err != nil {
+			slog.Error("Error occurred while unmarshalling xendit payment request api response", "err", err)
+			getPaymentErrChan <- fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
+		}
+
+		paymentResponseChan <- &paymentRequestResponse
+		getPaymentErrChan <- nil
+	}()
+
+	if err := <-getPaymentErrChan; err != nil {
+		slog.Error("Error occurred while getting payment", "error", err)
+		return err
+	}
+
+	paymentResponse := <-paymentResponseChan
+
+	getPaymentByIdResponse := &GetPaymentByIdResponse{
+		XenditPaymentId: paymentResponse.Id,
+		Status:          paymentResponse.Status,
+		Amount:          paymentResponse.Amount,
+		Created:         paymentResponse.Created,
+		Updated:         paymentResponse.Updated,
+		Actions: PaymentActions{
+			Ewallet:        nil,
+			VirtualAccount: nil,
+			QrCode:         nil,
+		},
+	}
+
+	if paymentResponse.Actions == nil || len(paymentResponse.Actions) == 0 {
+		return c.JSON(fiber.Map{
+			"message": "Successfully retrieved payment",
+			"data":    getPaymentByIdResponse,
+			"errors":  nil,
+		})
+	}
+
+	for _, channel := range payment_method.AllowedPaymentMethodTypeEnumValues {
+		if paymentResponse.PaymentMethod.Type == string(channel) {
+			switch channel {
+			case "EWALLET":
+				getPaymentByIdResponse.Actions.Ewallet = &EwalletActions{
+					Action:  paymentResponse.Actions[0].Action,
+					Url:     paymentResponse.Actions[0].Url,
+					Method:  paymentResponse.Actions[0].Method,
+					UrlType: paymentResponse.Actions[0].UrlType,
+				}
+				break
+			case "VIRTUAL_ACCOUNT":
+				getPaymentByIdResponse.Actions.VirtualAccount = &VirtualAccountActions{
+					VirtualAccountNumber: paymentResponse.PaymentMethod.VirtualAccount.ChannelProperties.VirtualAccountNumber,
+				}
+				break
+			case "QR_CODE":
+				getPaymentByIdResponse.Actions.QrCode = &QrCodeActions{
+					QrCodeString: paymentResponse.PaymentMethod.QrCode.QrCodeChannelProperties.QrString,
+				}
+				break
+			}
+		}
+	}
+
+	return c.JSON(fiber.Map{
+		"message": "Payment retrieved successfully",
+		"data":    &getPaymentByIdResponse,
+		"errors":  nil,
+	})
 }
