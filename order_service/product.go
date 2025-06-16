@@ -10,7 +10,7 @@ type Product struct {
 	Code          string    `json:"code"`
 	Description   string    `json:"description"`
 	ImageUrl      string    `json:"image_url"`
-	Price         float64   `json:"price"`
+	Price         int       `json:"price"`
 	CreatedAt     time.Time `json:"created_at"`
 	UpdatedAt     time.Time `json:"updated_at"`
 }

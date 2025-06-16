@@ -12,11 +12,14 @@ import (
 	"github.com/google/uuid"
 	"github.com/xendit/xendit-go/v4/payment_method"
 	"log/slog"
+	"math"
 	"os"
 	"strings"
 	"sync"
 	"time"
 )
+
+const AppServiceCharge int = 1000
 
 type OrderService struct {
 	DB       *sql.DB
@@ -33,6 +36,8 @@ func (o *OrderService) RegisterRoutes(app fiber.Router) {
 	app.Get("/orders", o.handleGetOrders)
 	app.Get("/orders/:id", o.handleGetOrderById)
 	app.Post("/orders", o.handleCreateOrders)
+	app.Post("/webhook/orders/succeeded", o.handleOrderSucceededWebhook)
+	app.Post("/webhook/orders/failed", o.handleOrderFailedWebhook)
 }
 
 func (o *OrderService) handleGetOrders(c *fiber.Ctx) error {
@@ -202,7 +207,6 @@ func (o *OrderService) handleCreateOrders(c *fiber.Ctx) error {
 	orderData.Destination = orderRequest.Destination
 	orderData.ServerId = orderRequest.ServerId
 	orderData.BuyerEmail = orderRequest.BuyerEmail
-	orderData.ServiceCharge += 1000 // flat service charge for application
 
 	var wg sync.WaitGroup
 	userServiceErrChan := make(chan error, 1)
@@ -393,9 +397,9 @@ func (o *OrderService) handleCreateOrders(c *fiber.Ctx) error {
 		// calculate the total amount of service charge, payment method charge and product price
 		// if the service charge is less than 1, it means it's a percentage
 		if paymentMethod.ServiceCharge < 1 {
-			createPaymentRequest.Amount += (product.Price + orderData.ServiceCharge) + ((product.Price + orderData.ServiceCharge) * paymentMethod.ServiceCharge)
+			createPaymentRequest.Amount = int((float64(product.Price)*paymentMethod.ServiceCharge)+float64(product.Price)) + AppServiceCharge
 		} else {
-			createPaymentRequest.Amount += product.Price + paymentMethod.ServiceCharge + orderData.ServiceCharge
+			createPaymentRequest.Amount = int(float64(product.Price)+paymentMethod.ServiceCharge) + AppServiceCharge
 		}
 
 		createPaymentRequest.BuyerEmail = orderData.BuyerEmail
@@ -418,8 +422,17 @@ func (o *OrderService) handleCreateOrders(c *fiber.Ctx) error {
 		}
 
 		if paymentServiceResponse.StatusCode != fiber.StatusCreated {
-			slog.Error("payment service returned non-200 status code", "code", paymentServiceResponse.StatusCode)
-			paymentServiceErrChan <- fiber.NewError(paymentServiceResponse.StatusCode, string(paymentServiceResponse.Body))
+
+			var errResp GetResponse[interface{}]
+
+			err := json.Unmarshal(paymentServiceResponse.Body, &errResp)
+			if err != nil {
+				slog.Error("Error occurred while calling payment service", "err", err)
+				paymentServiceErrChan <- fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
+			}
+
+			slog.Error("payment service returned non-200 status code", "code", paymentServiceResponse.StatusCode, "body", string(paymentServiceResponse.Body))
+			paymentServiceErrChan <- fiber.NewError(paymentServiceResponse.StatusCode, errResp.Message)
 			return
 		}
 
@@ -468,11 +481,11 @@ func (o *OrderService) handleCreateOrders(c *fiber.Ctx) error {
 	// calculate the total amount of service charge, payment method charge and product price
 	// if the service charge is less than 1, it means it's a percentage
 	if paymentMethod.ServiceCharge < 1 {
-		orderData.ServiceCharge = (orderData.TotalProductAmount + orderData.ServiceCharge) * paymentMethod.ServiceCharge
-		orderData.TotalAmount = orderData.TotalProductAmount + orderData.ServiceCharge
+		orderData.ServiceCharge = (float64(product.Price) * paymentMethod.ServiceCharge) + float64(AppServiceCharge)
+		orderData.TotalAmount = int(math.Ceil((float64(product.Price) * paymentMethod.ServiceCharge) + float64(product.Price) + float64(AppServiceCharge)))
 	} else {
-		orderData.ServiceCharge += paymentMethod.ServiceCharge
-		orderData.TotalAmount += orderData.TotalProductAmount + orderData.ServiceCharge
+		orderData.ServiceCharge = paymentMethod.ServiceCharge + float64(AppServiceCharge)
+		orderData.TotalAmount = product.Price + int(paymentMethod.ServiceCharge) + AppServiceCharge
 	}
 
 	orderData.Status = paymentResponse.Status
@@ -521,7 +534,7 @@ func (o *OrderService) handleCreateOrders(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, "Failed to create order")
 	}
 
-	newOrderMsg := &NewOrderMsg{
+	newOrderMsg := &OrderMsg{
 		Id:                 orderData.Id,
 		ProductId:          orderData.ProductId,
 		ProductName:        orderData.ProductName,
@@ -549,4 +562,151 @@ func (o *OrderService) handleCreateOrders(c *fiber.Ctx) error {
 		"data":    orderData,
 		"errors":  nil,
 	})
+}
+
+func (o *OrderService) handleOrderSucceededWebhook(c *fiber.Ctx) error {
+	var request GetResponse[XenditPaymentRequest]
+	if err := c.BodyParser(&request); err != nil {
+		slog.Error("Error occurred while parsing webhook request", "err", err)
+		return fiber.NewError(fiber.StatusBadRequest, "Invalid request")
+	}
+
+	webhookRequest := request.Data
+
+	if webhookRequest.Status != "SUCCEEDED" {
+		slog.Info("Order payment not succeeded", "status", webhookRequest.Status)
+		return c.SendStatus(fiber.StatusOK)
+	}
+
+	tx, err := o.DB.Begin()
+	if err != nil {
+		slog.Error("Error occurred while starting transaction", "err", err)
+		return fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
+	}
+	defer shared.CommitOrRollback(tx, nil)
+
+	query := `UPDATE orders SET status = ?, failure_code = ? WHERE id = ?`
+	result, err := tx.ExecContext(o.Ctx, query, webhookRequest.Status, webhookRequest.FailureCode, webhookRequest.ReferenceId)
+	if err != nil {
+		slog.Error("Error occurred while updating order status", "err", err)
+		return fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
+	}
+
+	if affectedRows, _ := result.RowsAffected(); affectedRows == 0 {
+		slog.Error("No rows affected while updating order status")
+		return fiber.NewError(fiber.StatusNotFound, "Order not found")
+	}
+
+	query = `SELECT id, product_id, product_name, destination, server_id, payment_method_name, payment_method_id, service_charge, total_product_amount, total_amount FROM orders WHERE id = ?`
+	row := tx.QueryRowContext(o.Ctx, query, webhookRequest.ReferenceId)
+	var order Order
+	err = row.Scan(&order.Id, &order.ProductId, &order.ProductName, &order.Destination, &order.ServerId,
+		&order.PaymentMethodName, &order.PaymentMethodId, &order.ServiceCharge, &order.TotalProductAmount, &order.TotalAmount)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			slog.Error("Order not found for payment reference ID", "id", webhookRequest.Id)
+			return fiber.NewError(fiber.StatusNotFound, "Order not found")
+		}
+		slog.Error("Error occurred while scanning order row", "err", err)
+		return fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
+	}
+
+	newOrderMsg := &OrderMsg{
+		Id:                 order.Id,
+		ProductId:          order.ProductId,
+		ProductName:        order.ProductName,
+		ProductPrice:       order.TotalProductAmount,
+		Destination:        order.Destination,
+		ServerId:           order.ServerId,
+		PaymentMethodName:  order.PaymentMethodName,
+		PaymentMethodId:    order.PaymentMethodId,
+		BuyerEmail:         order.BuyerEmail,
+		ServiceCharge:      order.ServiceCharge,
+		TotalProductAmount: order.TotalProductAmount,
+		TotalAmount:        order.TotalAmount,
+		CreatedAt:          order.CreatedAt,
+	}
+	newOrderMsgJson, err := json.Marshal(newOrderMsg)
+
+	err = o.Producer.Write(o.Ctx, "order_succeeded", [2]string{webhookRequest.Id, string(newOrderMsgJson)})
+	if err != nil {
+		slog.Error("Error occurred while sending order succeeded event", "err", err)
+		return fiber.NewError(fiber.StatusInternalServerError, "Failed to send order succeeded event")
+	}
+
+	return c.SendStatus(fiber.StatusOK)
+}
+
+func (o *OrderService) handleOrderFailedWebhook(c *fiber.Ctx) error {
+
+	var request GetResponse[XenditPaymentRequest]
+	if err := c.BodyParser(&request); err != nil {
+		slog.Error("Error occurred while parsing webhook request", "err", err)
+		return fiber.NewError(fiber.StatusBadRequest, "Invalid request")
+	}
+
+	webhookRequest := request.Data
+
+	if webhookRequest.Status != "FAILED" {
+		slog.Info("Order payment not failed", "status", webhookRequest.Status)
+		return c.SendStatus(fiber.StatusOK)
+	}
+
+	tx, err := o.DB.Begin()
+	if err != nil {
+		slog.Error("Error occurred while starting transaction", "err", err)
+		return fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
+	}
+	defer shared.CommitOrRollback(tx, nil)
+
+	query := `UPDATE orders SET status = ?, failure_code = ? WHERE id = ?`
+	result, err := tx.ExecContext(o.Ctx, query, webhookRequest.Status, webhookRequest.FailureCode, webhookRequest.ReferenceId)
+	if err != nil {
+		slog.Error("Error occurred while updating order status", "err", err)
+		return fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
+	}
+
+	if affectedRows, _ := result.RowsAffected(); affectedRows == 0 {
+		slog.Error("No rows affected while updating order status")
+		return fiber.NewError(fiber.StatusNotFound, "Order not found")
+	}
+
+	query = `SELECT id, product_id, product_name, destination, server_id, payment_method_name, payment_method_id, service_charge, total_product_amount, total_amount FROM orders WHERE id = ?`
+	row := tx.QueryRowContext(o.Ctx, query, webhookRequest.ReferenceId)
+	var order Order
+	err = row.Scan(&order.Id, &order.ProductId, &order.ProductName, &order.Destination, &order.ServerId,
+		&order.PaymentMethodName, &order.PaymentMethodId, &order.ServiceCharge, &order.TotalProductAmount, &order.TotalAmount)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			slog.Error("Order not found for payment reference ID", "id", webhookRequest.Id)
+			return fiber.NewError(fiber.StatusNotFound, "Order not found")
+		}
+		slog.Error("Error occurred while scanning order row", "err", err)
+		return fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
+	}
+
+	newOrderMsg := &OrderMsg{
+		Id:                 order.Id,
+		ProductId:          order.ProductId,
+		ProductName:        order.ProductName,
+		ProductPrice:       order.TotalProductAmount,
+		Destination:        order.Destination,
+		ServerId:           order.ServerId,
+		PaymentMethodName:  order.PaymentMethodName,
+		PaymentMethodId:    order.PaymentMethodId,
+		BuyerEmail:         order.BuyerEmail,
+		ServiceCharge:      order.ServiceCharge,
+		TotalProductAmount: order.TotalProductAmount,
+		TotalAmount:        order.TotalAmount,
+		CreatedAt:          order.CreatedAt,
+	}
+	newOrderMsgJson, err := json.Marshal(newOrderMsg)
+
+	err = o.Producer.Write(o.Ctx, "order_failed", [2]string{webhookRequest.Id, string(newOrderMsgJson)})
+	if err != nil {
+		slog.Error("Error occurred while sending order failed event", "err", err)
+		return fiber.NewError(fiber.StatusInternalServerError, "Failed to send order failed event")
+	}
+
+	return c.SendStatus(fiber.StatusOK)
 }

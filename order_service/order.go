@@ -14,9 +14,9 @@ type Order struct {
 	ServerId           string    `json:"server_id"`
 	PaymentMethodId    string    `json:"payment_method_id"`
 	PaymentMethodName  string    `json:"payment_method_name"`
-	TotalProductAmount float64   `json:"total_product_amount"`
+	TotalProductAmount int       `json:"total_product_amount"`
 	ServiceCharge      float64   `json:"service_charge"`
-	TotalAmount        float64   `json:"total_amount"`
+	TotalAmount        int       `json:"total_amount"`
 	Status             string    `json:"status"`
 	FailureCode        string    `json:"failure_code"`
 	CreatedAt          time.Time `json:"created_at"`
