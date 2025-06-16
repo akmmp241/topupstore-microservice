@@ -22,6 +22,12 @@ var ForgetPasswordEmail string
 //go:embed templates/new-order.html
 var NewOrderEmail string
 
+//go:embed templates/success-order.html
+var SuccessOrderEmail string
+
+//go:embed templates/failed-order.html
+var FailedOrderEmail string
+
 type EmailService struct {
 	Mailer *Mailer
 }
@@ -153,7 +159,7 @@ func (e *EmailService) HandleForgotPassword(msg *kafka.Message) error {
 }
 
 func (e *EmailService) HandleNewOrder(msg *kafka.Message) error {
-	newOrderMsg := NewOrderMsg{}
+	newOrderMsg := OrderMsg{}
 	if err := json.Unmarshal(msg.Value, &newOrderMsg); err != nil {
 		slog.Error("Error unmarshalling message", "error", err)
 		return err
@@ -179,6 +185,86 @@ func (e *EmailService) HandleNewOrder(msg *kafka.Message) error {
 	emailData := &SendMail{
 		To:      to,
 		Subject: "New Order Confirmation",
+		Body:    body.String(),
+	}
+
+	if err := e.Mailer.SendMail(emailData); err != nil {
+		slog.Error("Error sending mail", "error", err)
+		return err
+	}
+
+	slog.Info("Email sent successfully", "to", to, "subject", emailData.Subject)
+
+	return nil
+}
+
+func (e *EmailService) HandleSuccessOrder(msg *kafka.Message) error {
+	newOrderMsg := OrderMsg{}
+	if err := json.Unmarshal(msg.Value, &newOrderMsg); err != nil {
+		slog.Error("Error unmarshalling message", "error", err)
+		return err
+	}
+
+	tmpl, err := template.New("order-succeeded").Parse(SuccessOrderEmail)
+	if err != nil {
+		slog.Error("Error parsing template", "error", err)
+		return err
+	}
+
+	var body bytes.Buffer
+	if err := tmpl.Execute(&body, newOrderMsg); err != nil {
+		slog.Error("Error creating buffer", "error", err)
+		return err
+	}
+
+	to := os.Getenv("SMTP_FROM")
+	if os.Getenv("APP_ENV") == "production" {
+		to = newOrderMsg.BuyerEmail
+	}
+
+	emailData := &SendMail{
+		To:      to,
+		Subject: "Order Payment Succeeded",
+		Body:    body.String(),
+	}
+
+	if err := e.Mailer.SendMail(emailData); err != nil {
+		slog.Error("Error sending mail", "error", err)
+		return err
+	}
+
+	slog.Info("Email sent successfully", "to", to, "subject", emailData.Subject)
+
+	return nil
+}
+
+func (e *EmailService) HandleFailedOrder(msg *kafka.Message) error {
+	newOrderMsg := OrderMsg{}
+	if err := json.Unmarshal(msg.Value, &newOrderMsg); err != nil {
+		slog.Error("Error unmarshalling message", "error", err)
+		return err
+	}
+
+	tmpl, err := template.New("order-failed").Parse(FailedOrderEmail)
+	if err != nil {
+		slog.Error("Error parsing template", "error", err)
+		return err
+	}
+
+	var body bytes.Buffer
+	if err := tmpl.Execute(&body, newOrderMsg); err != nil {
+		slog.Error("Error creating buffer", "error", err)
+		return err
+	}
+
+	to := os.Getenv("SMTP_FROM")
+	if os.Getenv("APP_ENV") == "production" {
+		to = newOrderMsg.BuyerEmail
+	}
+
+	emailData := &SendMail{
+		To:      to,
+		Subject: "Order Payment Failed",
 		Body:    body.String(),
 	}
 

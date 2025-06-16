@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Payment Successful</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            margin: 0;
+            padding: 0;
+        }
+
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            background-color: #4CAF50;
+            color: white;
+            text-align: center;
+            padding: 20px;
+        }
+
+        .content {
+            padding: 20px;
+            background-color: #f9f9f9;
+        }
+
+        .order-details {
+            margin: 20px 0;
+            padding: 15px;
+            background-color: white;
+            border-radius: 5px;
+        }
+
+        .footer {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <h1>Payment Successful!</h1>
+    </div>
+    <div class="content">
+        <p>Thank you for your order. Your payment has been successfully processed.</p>
+
+        <div class="order-details">
+            <h2>Order Details:</h2>
+            <p><strong>Order ID:</strong> {{.Id}}</p>
+            <p><strong>Order Date:</strong> {{.CreatedAt}}</p>
+            <p><strong>Total Amount:</strong> {{.TotalAmount}}</p>
+            <p><strong>Payment Status:</strong> {{.Status}}</p>
+        </div>
+    </div>
+    <div class="footer">
+        <p>© AkmalStore 2025. All rights reserved.</p>
+        <p>If you have any questions about your order, please contact our support team.</p>
+        <p>Thank you for your business!</p>
+    </div>
+</div>
+</body>
+</html>

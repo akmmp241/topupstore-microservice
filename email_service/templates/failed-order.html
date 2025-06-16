@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Payment Failed</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            margin: 0;
+            padding: 0;
+        }
+
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            background-color: #FF4444;
+            color: white;
+            text-align: center;
+            padding: 20px;
+        }
+
+        .content {
+            padding: 20px;
+            background-color: #f9f9f9;
+        }
+
+        .order-details {
+            margin: 20px 0;
+            padding: 15px;
+            background-color: white;
+            border-radius: 5px;
+        }
+
+        .footer {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <h1>Payment Failed!</h1>
+    </div>
+    <div class="content">
+        <p>We regret to inform you that your payment was unsuccessful.</p>
+
+        <div class="order-details">
+            <h2>Order Details:</h2>
+            <p><strong>Order ID:</strong> {{.Id}}</p>
+            <p><strong>Order Date:</strong> {{.CreatedAt}}</p>
+            <p><strong>Total Amount:</strong> {{.TotalAmount}}</p>
+            <p><strong>Payment Status:</strong> {{.Status}}</p>
+            <p><strong>Failure Code: {{.FailureCode}}</strong></p>
+        </div>
+
+        <p>Please try again or contact our support team if you need assistance.</p>
+    </div>
+    <div class="footer">
+        <p>© AkmalStore 2025. All rights reserved.</p>
+        <p>If you have any questions about your order, please contact our support team.</p>
+        <p>Thank you for your business!</p>
+    </div>
+</div>
+</body>
+</html>

@@ -29,8 +29,10 @@ type ForgotPasswordMessage struct {
 	ExpiresAt time.Time `json:"expired_at"`
 }
 
-type NewOrderMsg struct {
+type OrderMsg struct {
 	Id                 string    `json:"id" validate:"required"`
+	Status             string    `json:"status" validate:"required"`
+	FailureCode        string    `json:"failure_code"`
 	ProductId          int       `json:"product_id" validate:"required"`
 	ProductName        string    `json:"product_name" validate:"required"`
 	ProductPrice       float64   `json:"product_price" validate:"required,min=1"`

@@ -16,6 +16,8 @@ type KafkaConsumer struct {
 	UserLoginReader        *kafka.Reader
 	ForgotPasswordReader   *kafka.Reader
 	NewOrderReader         *kafka.Reader
+	SuccessfulOrder        *kafka.Reader
+	FailedOrder            *kafka.Reader
 	EmailService           *EmailService
 }
 
@@ -31,31 +33,18 @@ func NewKafkaConsumer(bootstrapServer string, groupId string) *KafkaConsumer {
 	}
 
 	return &KafkaConsumer{
-		UserRegistrationReader: initUserRegistrationReader(kafkaConfig),
-		UserLoginReader:        initUserLoginReader(kafkaConfig),
-		ForgotPasswordReader:   initForgotPasswordReader(kafkaConfig),
-		NewOrderReader:         initNewOrderReader(kafkaConfig),
+		UserRegistrationReader: initReader(kafkaConfig, "user-registration"),
+		UserLoginReader:        initReader(kafkaConfig, "user-login"),
+		ForgotPasswordReader:   initReader(kafkaConfig, "forget-password"),
+		NewOrderReader:         initReader(kafkaConfig, "new_order"),
+		SuccessfulOrder:        initReader(kafkaConfig, "order_succeeded"),
+		FailedOrder:            initReader(kafkaConfig, "order_failed"),
 	}
 }
 
-func initUserRegistrationReader(cfg *KafkaConfig) *kafka.Reader {
-	defer slog.Info("Kafka Consumer created with", "topic:", "user-registration", "group-id:", cfg.GroupId)
-	return shared.NewKafkaConsumer(cfg.GroupId, "user-registration")
-}
-
-func initUserLoginReader(cfg *KafkaConfig) *kafka.Reader {
-	defer slog.Info("Kafka Consumer created with", "topic:", "user-login", "group-id:", cfg.GroupId)
-	return shared.NewKafkaConsumer(cfg.GroupId, "user-login")
-}
-
-func initForgotPasswordReader(cfg *KafkaConfig) *kafka.Reader {
-	defer slog.Info("Kafka Consumer created with", "topic:", "forgot-password", "group-id:", cfg.GroupId)
-	return shared.NewKafkaConsumer(cfg.GroupId, "forget-password")
-}
-
-func initNewOrderReader(cfg *KafkaConfig) *kafka.Reader {
-	defer slog.Info("Kafka Consumer created with", "topic:", "new-order", "group-id:", cfg.GroupId)
-	return shared.NewKafkaConsumer(cfg.GroupId, "new_order")
+func initReader(cfg *KafkaConfig, topic string) *kafka.Reader {
+	defer slog.Info("Kafka Consumer created with", "topic:", topic, "group-id:", cfg.GroupId)
+	return shared.NewKafkaConsumer(cfg.GroupId, topic)
 }
 
 func (c *KafkaConsumer) StartUserRegistrationConsumer(handler HandlerKafka) {
@@ -132,6 +121,52 @@ func (c *KafkaConsumer) StartNewOrderConsumer(handler HandlerKafka) {
 	defer c.NewOrderReader.Close()
 	for {
 		message, err := c.NewOrderReader.ReadMessage(context.Background())
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				slog.Warn("Reached EOF, possibly no messages yet.")
+				continue
+			}
+			slog.Error("Error while reading", "error:", err)
+			break
+		}
+
+		err = handler(&message)
+		if err != nil {
+			slog.Error("Error while handling message", "error:", err)
+			continue
+		}
+
+		slog.Debug("Received message", "message:", string(message.Value), "key", string(message.Key))
+	}
+}
+
+func (c *KafkaConsumer) StartSuccessfulOrderConsumer(handler HandlerKafka) {
+	defer c.SuccessfulOrder.Close()
+	for {
+		message, err := c.SuccessfulOrder.ReadMessage(context.Background())
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				slog.Warn("Reached EOF, possibly no messages yet.")
+				continue
+			}
+			slog.Error("Error while reading", "error:", err)
+			break
+		}
+
+		err = handler(&message)
+		if err != nil {
+			slog.Error("Error while handling message", "error:", err)
+			continue
+		}
+
+		slog.Debug("Received message", "message:", string(message.Value), "key", string(message.Key))
+	}
+}
+
+func (c *KafkaConsumer) StartFailedOrderConsumer(handler HandlerKafka) {
+	defer c.FailedOrder.Close()
+	for {
+		message, err := c.FailedOrder.ReadMessage(context.Background())
 		if err != nil {
 			if errors.Is(err, io.EOF) {
 				slog.Warn("Reached EOF, possibly no messages yet.")
