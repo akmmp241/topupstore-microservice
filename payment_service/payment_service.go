@@ -12,6 +12,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/xendit/xendit-go/v4/payment_method"
 	"log/slog"
+	"math"
 	"os"
 	"time"
 )
@@ -47,7 +48,7 @@ func (p *PaymentService) CreatePayment(c *fiber.Ctx) error {
 
 	xenditRequestBody := XenditRequestBody{
 		Currency:    "IDR",
-		Amount:      paymentRequest.Amount,
+		Amount:      int(math.Ceil(paymentRequest.Amount)),
 		ReferenceId: paymentRequest.ReferenceId,
 		Customer: XenditCustomer{
 			ReferenceId: fmt.Sprintf("%s@%s", paymentRequest.ReferenceId, paymentRequest.BuyerEmail),
@@ -124,8 +125,14 @@ func (p *PaymentService) CreatePayment(c *fiber.Ctx) error {
 	}
 
 	if statusCode >= 300 {
+
+		var errMsg XenditErrMsg
+		err := json.Unmarshal(respByte, &errMsg)
+		if err != nil {
+			return fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
+		}
 		slog.Error("xendit payment request api returned non-200 status code", "code", statusCode, "resp", string(respByte))
-		return fiber.NewError(statusCode, string(respByte))
+		return fiber.NewError(statusCode, errMsg.Message)
 	}
 
 	var paymentRequestResponse XenditPaymentRequestResponse
@@ -178,8 +185,15 @@ func (p *PaymentService) GetPayment(c *fiber.Ctx) error {
 		}
 
 		if statusCode >= 300 {
+
+			var errMsg XenditErrMsg
+			err := json.Unmarshal(respByte, &errMsg)
+			if err != nil {
+				getPaymentErrChan <- fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
+				return
+			}
 			slog.Error("xendit payment request api returned non-200 status code", "code", statusCode, "resp", string(respByte))
-			getPaymentErrChan <- fiber.NewError(statusCode, string(respByte))
+			getPaymentErrChan <- fiber.NewError(statusCode, errMsg.Message)
 		}
 
 		var paymentRequestResponse XenditPaymentRequestResponse

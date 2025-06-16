@@ -3,12 +3,12 @@ package main
 import "time"
 
 type CreatePaymentRequest struct {
-	ReferenceId       string `json:"reference_id" validate:"required"`
-	PaymentMethodId   string `json:"payment_method_id" validate:"required"`
-	PaymentMethodName string `json:"payment_method_name" validate:"required"`
-	Amount            int    `json:"amount" validate:"required,min=1"`
-	BuyerEmail        string `json:"buyer_email" validate:"required,email"`
-	BuyerMobileNumber string `json:"buyer_mobile_number" validate:"omitempty"`
+	ReferenceId       string  `json:"reference_id" validate:"required"`
+	PaymentMethodId   string  `json:"payment_method_id" validate:"required"`
+	PaymentMethodName string  `json:"payment_method_name" validate:"required"`
+	Amount            float64 `json:"amount" validate:"required,min=1"`
+	BuyerEmail        string  `json:"buyer_email" validate:"required,email"`
+	BuyerMobileNumber string  `json:"buyer_mobile_number" validate:"omitempty"`
 }
 
 type CreatePaymentResponse struct {
@@ -21,7 +21,7 @@ type XenditPaymentRequestResponse struct {
 	Id            string              `json:"id" validate:"required"`
 	ReferenceId   string              `json:"reference_id" validate:"required"`
 	Status        string              `json:"status" validate:"required"`
-	Amount        float64             `json:"amount" validate:"required"`
+	Amount        int                 `json:"amount" validate:"required"`
 	Country       string              `json:"country" validate:"required"`
 	Currency      string              `json:"currency" validate:"required"`
 	PaymentMethod XenditPaymentMethod `json:"payment_method" validate:"required"`
@@ -111,9 +111,14 @@ type PaymentActions struct {
 
 type GetPaymentByIdResponse struct {
 	XenditPaymentId string         `json:"xendit_payment_id" validate:"required"`
-	Amount          float64        `json:"amount" validate:"required"`
+	Amount          int            `json:"amount" validate:"required"`
 	Status          string         `json:"status" validate:"required"`
 	Actions         PaymentActions `json:"actions" validate:"required"`
 	Created         time.Time      `json:"created" validate:"required"`
 	Updated         time.Time      `json:"updated" validate:"required"`
+}
+
+type XenditErrMsg struct {
+	ErrorCode string `json:"error_code"`
+	Message   string `json:"message"`
 }
