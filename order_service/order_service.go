@@ -536,6 +536,7 @@ func (o *OrderService) handleCreateOrders(c *fiber.Ctx) error {
 
 	newOrderMsg := &OrderMsg{
 		Id:                 orderData.Id,
+		Status:             orderData.Status,
 		ProductId:          orderData.ProductId,
 		ProductName:        orderData.ProductName,
 		ProductPrice:       orderData.TotalProductAmount,
@@ -585,10 +586,12 @@ func (o *OrderService) handleOrderSucceededWebhook(c *fiber.Ctx) error {
 	}
 	defer shared.CommitOrRollback(tx, nil)
 
+	slog.Info("Updating order status", "id", webhookRequest.ReferenceId, "status", webhookRequest.Status, "failure_code", webhookRequest.FailureCode)
+
 	query := `UPDATE orders SET status = ?, failure_code = ? WHERE id = ?`
 	result, err := tx.ExecContext(o.Ctx, query, webhookRequest.Status, webhookRequest.FailureCode, webhookRequest.ReferenceId)
 	if err != nil {
-		slog.Error("Error occurred while updating order status", "err", err)
+		slog.Error("Error occurred while updating order status", "err", err, "id", webhookRequest.ReferenceId, "status", webhookRequest.Status)
 		return fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
 	}
 
@@ -597,11 +600,11 @@ func (o *OrderService) handleOrderSucceededWebhook(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusNotFound, "Order not found")
 	}
 
-	query = `SELECT id, product_id, product_name, destination, server_id, payment_method_name, payment_method_id, service_charge, total_product_amount, total_amount FROM orders WHERE id = ?`
+	query = `SELECT id, product_id, product_name, destination, server_id, payment_method_name, payment_method_id, service_charge, total_product_amount, total_amount, created_at FROM orders WHERE id = ?`
 	row := tx.QueryRowContext(o.Ctx, query, webhookRequest.ReferenceId)
 	var order Order
 	err = row.Scan(&order.Id, &order.ProductId, &order.ProductName, &order.Destination, &order.ServerId,
-		&order.PaymentMethodName, &order.PaymentMethodId, &order.ServiceCharge, &order.TotalProductAmount, &order.TotalAmount)
+		&order.PaymentMethodName, &order.PaymentMethodId, &order.ServiceCharge, &order.TotalProductAmount, &order.TotalAmount, &order.CreatedAt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			slog.Error("Order not found for payment reference ID", "id", webhookRequest.Id)
@@ -613,6 +616,7 @@ func (o *OrderService) handleOrderSucceededWebhook(c *fiber.Ctx) error {
 
 	newOrderMsg := &OrderMsg{
 		Id:                 order.Id,
+		Status:             webhookRequest.Status,
 		ProductId:          order.ProductId,
 		ProductName:        order.ProductName,
 		ProductPrice:       order.TotalProductAmount,
@@ -671,11 +675,11 @@ func (o *OrderService) handleOrderFailedWebhook(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusNotFound, "Order not found")
 	}
 
-	query = `SELECT id, product_id, product_name, destination, server_id, payment_method_name, payment_method_id, service_charge, total_product_amount, total_amount FROM orders WHERE id = ?`
+	query = `SELECT id, product_id, product_name, destination, server_id, payment_method_name, payment_method_id, service_charge, total_product_amount, total_amount, created_at FROM orders WHERE id = ?`
 	row := tx.QueryRowContext(o.Ctx, query, webhookRequest.ReferenceId)
 	var order Order
 	err = row.Scan(&order.Id, &order.ProductId, &order.ProductName, &order.Destination, &order.ServerId,
-		&order.PaymentMethodName, &order.PaymentMethodId, &order.ServiceCharge, &order.TotalProductAmount, &order.TotalAmount)
+		&order.PaymentMethodName, &order.PaymentMethodId, &order.ServiceCharge, &order.TotalProductAmount, &order.TotalAmount, &order.CreatedAt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			slog.Error("Order not found for payment reference ID", "id", webhookRequest.Id)
@@ -687,6 +691,8 @@ func (o *OrderService) handleOrderFailedWebhook(c *fiber.Ctx) error {
 
 	newOrderMsg := &OrderMsg{
 		Id:                 order.Id,
+		Status:             webhookRequest.Status,
+		FailureCode:        webhookRequest.FailureCode,
 		ProductId:          order.ProductId,
 		ProductName:        order.ProductName,
 		ProductPrice:       order.TotalProductAmount,

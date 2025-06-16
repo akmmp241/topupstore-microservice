@@ -27,6 +27,8 @@ type CreatePaymentResponse struct {
 
 type OrderMsg struct {
 	Id                 string    `json:"id" validate:"required"`
+	Status             string    `json:"status" validate:"required"`
+	FailureCode        string    `json:"failure_code"`
 	ProductId          int       `json:"product_id" validate:"required"`
 	ProductName        string    `json:"product_name" validate:"required"`
 	ProductPrice       int       `json:"product_price" validate:"required,min=1"`
