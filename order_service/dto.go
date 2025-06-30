@@ -130,3 +130,11 @@ type XenditPaymentMethod struct {
 	VirtualAccount *VirtualAccount `json:"virtual_account,omitempty"`
 	QrCode         *QrCode         `json:"qr_code,omitempty"`
 }
+
+type SimulatePaymentRequest struct {
+	Amount int `json:"amount" validate:"required"`
+}
+
+type SimulateXenditResponse struct {
+	Status string `json:"status"`
+}

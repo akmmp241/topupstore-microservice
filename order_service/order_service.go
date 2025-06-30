@@ -13,6 +13,7 @@ import (
 	"github.com/xendit/xendit-go/v4/payment_method"
 	"log/slog"
 	"math"
+	url_lib "net/url"
 	"os"
 	"strings"
 	"sync"
@@ -35,6 +36,7 @@ func NewOrderService(DB *sql.DB, validate *validator.Validate, producer *KafkaPr
 func (o *OrderService) RegisterRoutes(app fiber.Router) {
 	app.Get("/orders", o.handleGetOrders)
 	app.Get("/orders/:id", o.handleGetOrderById)
+	app.Post("/orders/:id/simulate", o.handleSimulatePayment)
 	app.Post("/orders", o.handleCreateOrders)
 	app.Post("/webhook/orders/succeeded", o.handleOrderSucceededWebhook)
 	app.Post("/webhook/orders/failed", o.handleOrderFailedWebhook)
@@ -715,4 +717,173 @@ func (o *OrderService) handleOrderFailedWebhook(c *fiber.Ctx) error {
 	}
 
 	return c.SendStatus(fiber.StatusOK)
+}
+
+func (o *OrderService) handleSimulatePayment(c *fiber.Ctx) error {
+
+	orderId := c.Params("id")
+	if orderId == "" {
+		return fiber.NewError(fiber.StatusBadRequest, "Order ID is required")
+	}
+
+	simulateRequest := &SimulatePaymentRequest{}
+	if err := c.BodyParser(simulateRequest); err != nil {
+		slog.Error("Error occurred while parsing simulate payment request", "err", err)
+		return fiber.NewError(fiber.StatusBadRequest, "Invalid request")
+	}
+
+	tx, err := o.DB.Begin()
+	if err != nil {
+		slog.Error("Error occurred while starting transaction", "err", err)
+		return err
+	}
+	defer shared.CommitOrRollback(tx, nil)
+
+	query := `SELECT id, payment_reference_id, buyer_id, buyer_email, buyer_phone, product_id, product_name, destination, server_id, payment_method_id, 
+	   payment_method_name, total_product_amount, service_charge, total_amount, status, failure_code, created_at, updated_at FROM orders WHERE id = ?`
+
+	row := tx.QueryRowContext(o.Ctx, query, orderId)
+
+	var order Order
+	err = row.Scan(&order.Id, &order.PaymentReferenceId, &order.BuyerId, &order.BuyerEmail, &order.BuyerPhone,
+		&order.ProductId, &order.ProductName, &order.Destination,
+		&order.ServerId, &order.PaymentMethodId,
+		&order.PaymentMethodName, &order.TotalProductAmount,
+		&order.ServiceCharge, &order.TotalAmount,
+		&order.Status, &order.FailureCode,
+		&order.CreatedAt, &order.UpdatedAt)
+
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return fiber.NewError(fiber.StatusNotFound, "Order not found")
+		}
+		slog.Error("Error occurred while scanning order row", "err", err)
+		return err
+	}
+
+	paymentServiceErrChan := make(chan error, 1)
+	getPaymentByIdResponse := make(chan *GetPaymentByIdResponse, 1)
+	defer close(getPaymentByIdResponse)
+
+	go func() {
+		defer close(paymentServiceErrChan)
+
+		paymentServiceHost := os.Getenv("PAYMENT_SERVICE_HOST")
+		paymentServicePort := os.Getenv("PAYMENT_SERVICE_PORT")
+		url := fmt.Sprintf("/payments/%s", order.PaymentReferenceId)
+		paymentServiceResponse, err := shared.CallService(paymentServiceHost, paymentServicePort, url, fiber.MethodGet, nil)
+
+		if err != nil || len(paymentServiceResponse.Errs) > 0 {
+			slog.Error("Error occurred while calling payment service", "errs", paymentServiceResponse.Errs)
+			slog.Error("Error occurred while calling payment service", "err", err)
+			paymentServiceErrChan <- fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
+			return
+		}
+
+		if paymentServiceResponse.StatusCode != fiber.StatusOK {
+			slog.Error("payment service returned non-200 status code", "code", paymentServiceResponse.StatusCode)
+			paymentServiceErrChan <- fiber.NewError(paymentServiceResponse.StatusCode, string(paymentServiceResponse.Body))
+			return
+		}
+
+		var paymentResponse GetResponse[GetPaymentByIdResponse]
+		err = json.Unmarshal(paymentServiceResponse.Body, &paymentResponse)
+		if err != nil {
+			slog.Error("Error occurred while unmarshalling payment response", "err", err)
+			paymentServiceErrChan <- fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
+			return
+		}
+
+		getPaymentByIdResponse <- &paymentResponse.Data
+		paymentServiceErrChan <- nil
+	}()
+
+	if err = <-paymentServiceErrChan; err != nil {
+		slog.Error("Error occurred while getting payment details", "error", err)
+		return err
+	}
+
+	paymentResponse := <-getPaymentByIdResponse
+
+	if paymentResponse.Status == "SUCCEEDED" {
+		return c.JSON(fiber.Map{
+			"message": "Payment already succeeded",
+			"data":    paymentResponse,
+			"errors":  nil,
+		})
+	}
+
+	if paymentResponse.Status == "FAILED" {
+		return c.JSON(fiber.Map{
+			"message": "Payment already failed",
+			"data":    paymentResponse,
+			"errors":  nil,
+		})
+	}
+
+	if paymentResponse.XenditPaymentId == "EWALLET" {
+		err := handleEwalletPaymentSimulation(paymentResponse.Actions.Ewallet)
+		if err != nil {
+			slog.Error("Error occurred while handling ewallet payment simulation", "err", err)
+			return err
+		}
+	} else {
+		handleOthersPaymentSimulation(&paymentResponse.Actions, order.PaymentReferenceId)
+	}
+
+	return c.JSON(fiber.Map{
+		"message": "Payment simulated successfully",
+		"data":    paymentResponse,
+		"errors":  nil,
+	})
+}
+
+func handleEwalletPaymentSimulation(ewalletAction *EwalletActions) error {
+	parsedPaymentUrl, err := url_lib.Parse(ewalletAction.Url)
+	if err != nil {
+		slog.Error("Error occurred while parsing ewallet payment url", "err", err)
+		return err
+	}
+
+	paymentToken := parsedPaymentUrl.Query().Get("token")
+	if paymentToken == "" {
+		slog.Error("Ewallet payment token not found in url")
+		return fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
+	}
+
+	urlPayment := fmt.Sprintf("https://ewallet-mock-connector.xendit.co/v1/ewallet_connector/payment_callbacks?token=%s", paymentToken)
+	agent := fiber.Post(urlPayment)
+
+	statusCode, body, errs := agent.Bytes()
+
+	if len(errs) > 0 {
+		slog.Error("Error occurred while calling payment service", "err", errs)
+		return fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
+	}
+
+	if statusCode != fiber.StatusOK {
+		slog.Error("failed to simulate payment", "code", statusCode)
+		return fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
+	}
+
+	xenditSimulationResp := SimulateXenditResponse{}
+	if err := json.Unmarshal(body, &xenditSimulationResp); err != nil {
+		slog.Error("Error occurred while unmarshalling ewallet payment response", "err", err)
+		return err
+	}
+
+	if xenditSimulationResp.Status == "SUCCEEDED" {
+		return nil
+
+	}
+
+	return fiber.NewError(fiber.StatusExpectationFailed, "Payment failed")
+}
+
+func handleOthersPaymentSimulation(paymentAction *PaymentActions, prId string) {
+	// check payment method
+
+	if paymentAction.VirtualAccount != nil {
+
+	}
 }
