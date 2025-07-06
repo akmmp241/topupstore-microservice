@@ -6,18 +6,19 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
+	"math"
+	urllib "net/url"
+	"os"
+	"strings"
+	"sync"
+	"time"
+
 	"github.com/akmmp241/topupstore-microservice/shared"
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"github.com/xendit/xendit-go/v4/payment_method"
-	"log/slog"
-	"math"
-	url_lib "net/url"
-	"os"
-	"strings"
-	"sync"
-	"time"
 )
 
 const AppServiceCharge int = 1000
@@ -51,7 +52,7 @@ func (o *OrderService) handleGetOrders(c *fiber.Ctx) error {
 	}
 	defer shared.CommitOrRollback(tx, nil)
 
-	query := `SELECT id, buyer_id, buyer_email, buyer_phone, product_id, product_name, destination, server_id, payment_method_id, 
+	query := `SELECT id, buyer_id, buyer_email, buyer_phone, product_id, product_name, destination, server_id, payment_method_id,
        payment_method_name, total_product_amount, service_charge, total_amount, status, failure_code, created_at, updated_at FROM orders`
 
 	rows, err := tx.QueryContext(o.Ctx, query)
@@ -96,7 +97,7 @@ func (o *OrderService) handleGetOrderById(c *fiber.Ctx) error {
 	}
 	defer shared.CommitOrRollback(tx, nil)
 
-	query := `SELECT id, payment_reference_id, buyer_id, buyer_email, buyer_phone, product_id, product_name, destination, server_id, payment_method_id, 
+	query := `SELECT id, payment_reference_id, buyer_id, buyer_email, buyer_phone, product_id, product_name, destination, server_id, payment_method_id,
 	   payment_method_name, total_product_amount, service_charge, total_amount, status, failure_code, created_at, updated_at FROM orders WHERE id = ?`
 
 	row := tx.QueryRowContext(o.Ctx, query, orderId)
@@ -104,6 +105,7 @@ func (o *OrderService) handleGetOrderById(c *fiber.Ctx) error {
 	var order Order
 	err = row.Scan(&order.Id, &order.PaymentReferenceId, &order.BuyerId, &order.BuyerEmail, &order.BuyerPhone,
 		&order.ProductId, &order.ProductName, &order.Destination,
+
 		&order.ServerId, &order.PaymentMethodId,
 		&order.PaymentMethodName, &order.TotalProductAmount,
 		&order.ServiceCharge, &order.TotalAmount,
@@ -501,8 +503,8 @@ func (o *OrderService) handleCreateOrders(c *fiber.Ctx) error {
 	}
 	defer shared.CommitOrRollback(tx, err)
 
-	query := `INSERT INTO orders (id, payment_reference_id, product_id, product_name, destination, server_id, buyer_id, buyer_email, 
-					buyer_phone, payment_method_id, payment_method_name, service_charge, total_product_amount, total_amount, 
+	query := `INSERT INTO orders (id, payment_reference_id, product_id, product_name, destination, server_id, buyer_id, buyer_email,
+					buyer_phone, payment_method_id, payment_method_name, service_charge, total_product_amount, total_amount,
 					status, failure_code, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 	result, err := tx.ExecContext(o.Ctx, query,
@@ -739,7 +741,7 @@ func (o *OrderService) handleSimulatePayment(c *fiber.Ctx) error {
 	}
 	defer shared.CommitOrRollback(tx, nil)
 
-	query := `SELECT id, payment_reference_id, buyer_id, buyer_email, buyer_phone, product_id, product_name, destination, server_id, payment_method_id, 
+	query := `SELECT id, payment_reference_id, buyer_id, buyer_email, buyer_phone, product_id, product_name, destination, server_id, payment_method_id,
 	   payment_method_name, total_product_amount, service_charge, total_amount, status, failure_code, created_at, updated_at FROM orders WHERE id = ?`
 
 	row := tx.QueryRowContext(o.Ctx, query, orderId)
@@ -828,7 +830,11 @@ func (o *OrderService) handleSimulatePayment(c *fiber.Ctx) error {
 			return err
 		}
 	} else {
-		handleOthersPaymentSimulation(&paymentResponse.Actions, order.PaymentReferenceId)
+		err = handleOthersPaymentSimulation(&paymentResponse.Actions, order.PaymentReferenceId, paymentResponse.Amount)
+		if err != nil {
+			slog.Error("Error occured while handling payment simulation", "err", err)
+			return err
+		}
 	}
 
 	return c.JSON(fiber.Map{
@@ -839,7 +845,7 @@ func (o *OrderService) handleSimulatePayment(c *fiber.Ctx) error {
 }
 
 func handleEwalletPaymentSimulation(ewalletAction *EwalletActions) error {
-	parsedPaymentUrl, err := url_lib.Parse(ewalletAction.Url)
+	parsedPaymentUrl, err := urllib.Parse(ewalletAction.Url)
 	if err != nil {
 		slog.Error("Error occurred while parsing ewallet payment url", "err", err)
 		return err
@@ -880,10 +886,31 @@ func handleEwalletPaymentSimulation(ewalletAction *EwalletActions) error {
 	return fiber.NewError(fiber.StatusExpectationFailed, "Payment failed")
 }
 
-func handleOthersPaymentSimulation(paymentAction *PaymentActions, prId string) {
+func handleOthersPaymentSimulation(paymentAction *PaymentActions, prId string, amount int) error {
 	// check payment method
-
-	if paymentAction.VirtualAccount != nil {
-
+	if paymentAction.VirtualAccount == nil || paymentAction.QrCode == nil {
+		return fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
 	}
+
+	xenditBaseUrl := os.Getenv("XENDIT_API_URL")
+	paymentSimulationUrl := fmt.Sprintf("%s/v3/payment_requests/%s/simulate", xenditBaseUrl, prId)
+
+	agent := fiber.Post(paymentSimulationUrl).
+		Set("api-version", "2024-11-11").
+		JSON(fiber.Map{
+			"amount": amount,
+		})
+
+	statusCode, _, errs := agent.Bytes()
+	if len(errs) > 0 {
+		slog.Error("Error occurred while calling xendit payment simulation api", "err", errs)
+		return fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
+	}
+
+	if statusCode != fiber.StatusOK {
+		slog.Error("failed to simulate payment", "code", statusCode)
+		return fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
+	}
+
+	return nil
 }
