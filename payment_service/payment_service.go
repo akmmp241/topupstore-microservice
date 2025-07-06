@@ -10,7 +10,6 @@ import (
 	"github.com/akmmp241/topupstore-microservice/shared"
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
-	"github.com/xendit/xendit-go/v4/payment_method"
 	"log/slog"
 	"math"
 	"os"
@@ -47,74 +46,62 @@ func (p *PaymentService) CreatePayment(c *fiber.Ctx) error {
 	}
 
 	xenditRequestBody := XenditRequestBody{
-		Currency:    "IDR",
-		Amount:      int(math.Ceil(paymentRequest.Amount)),
-		ReferenceId: paymentRequest.ReferenceId,
-		Customer: XenditCustomer{
-			ReferenceId: fmt.Sprintf("%s@%s", paymentRequest.ReferenceId, paymentRequest.BuyerEmail),
-			Type:        "INDIVIDUAL",
-			Email:       paymentRequest.BuyerEmail,
-			IndividualDetail: XenditCustomerIndividualDetail{
-				GivenNames: fmt.Sprintf("Topupstore-customer %s", paymentRequest.BuyerEmail),
-			},
-		},
-		PaymentMethod: XenditPaymentMethod{
-			Type:           paymentRequest.PaymentMethodId,
-			Reusability:    "ONE_TIME_USE",
-			Ewallet:        nil,
-			VirtualAccount: nil,
-			QrCode:         nil,
-		},
+		Currency:      "IDR",
+		RequestAmount: int(math.Ceil(paymentRequest.Amount)),
+		ReferenceId:   paymentRequest.ReferenceId,
 	}
 
 	// Check if the payment method is valid
-	for _, method := range payment_method.AllowedPaymentMethodTypeEnumValues {
-		if paymentRequest.PaymentMethodId != string(method) {
+	for _, channel := range EwalletChannelCodes {
+		if paymentRequest.ChannelCode != channel {
 			continue
 		}
 
 		// implementation for creating ewallet payment
-		if channel, err := payment_method.NewEWalletChannelCodeFromValue(paymentRequest.PaymentMethodName); channel != nil && err == nil {
-			xenditRequestBody.PaymentMethod.Ewallet = &Ewallet{
-				ChannelCode: channel.String(),
-				ChannelProperties: EwalletChannelProperties{
-					MobileNumber:     paymentRequest.BuyerMobileNumber,
-					SuccessReturnUrl: "https://example.com/success",
-				},
-			}
-			break
+		xenditRequestBody.ChannelCode = channel
+		xenditRequestBody.ChannelProperties = ChannelProperties{
+			SuccessReturnUrl: "https://www.xendit.co/success",
+			FailureReturnUrl: "https://www.xendit.co/failure",
+			CancelReturnUrl:  "https://www.xendit.co/cancel",
+		}
+	}
+
+	for _, channel := range VirtualAccountChannelCodes {
+		if paymentRequest.ChannelCode != channel {
+			continue
 		}
 
 		// implementation for creating virtual account payment
-		if channel, err := payment_method.NewVirtualAccountChannelCodeFromValue(paymentRequest.PaymentMethodName); channel != nil && err == nil {
-			xenditRequestBody.PaymentMethod.VirtualAccount = &VirtualAccount{
-				ChannelCode: channel.String(),
-				ChannelProperties: VirtualAccountChannelProperties{
-					CustomerName: fmt.Sprintf("Topupstore-customer %s", paymentRequest.BuyerEmail),
-					ExpiresAt:    time.Now().Add(24 * time.Hour),
-				},
-			}
-			break
+		xenditRequestBody.ChannelCode = channel
+		xenditRequestBody.ChannelProperties = ChannelProperties{
+			DisplayName: paymentRequest.BuyerEmail,
+			ExpiresAt:   time.Now().Add(time.Hour),
+		}
+	}
+
+	for _, channel := range QrisChannelCode {
+		if paymentRequest.ChannelCode != channel {
+			continue
 		}
 
-		// implementation for creating QR code payment
-		if channel, err := payment_method.NewQRCodeChannelCodeFromValue(paymentRequest.PaymentMethodName); channel != nil && err == nil {
-			xenditRequestBody.PaymentMethod.QrCode = &QrCode{
-				QrCodeChannelProperties: QrCodeChannelProperties{
-					ExpiresAt: time.Now().Add(24 * time.Hour),
-				},
-			}
-			break
-		}
+		// implementation for creating qris payment
+		xenditRequestBody.ChannelCode = channel
+	}
+
+	// check if channel code is valid
+	if xenditRequestBody.ChannelCode == "" {
+		slog.Error("Channel code is not valid", "channel_code", paymentRequest.ChannelCode)
+		return fiber.NewError(fiber.StatusBadRequest, "Channel code is not valid")
 	}
 
 	xenditApiKey := os.Getenv("XENDIT_API_KEY") + ":"
 	xenditApiKeyBase64 := base64.StdEncoding.EncodeToString([]byte(xenditApiKey))
 	xenditHost := os.Getenv("XENDIT_API_URL")
-	paymentReqUrl := fmt.Sprintf("%s/payment_requests", xenditHost)
+	paymentReqUrl := fmt.Sprintf("%s/v3/payment_requests", xenditHost)
 
 	agent := fiber.Post(paymentReqUrl).Timeout(15*time.Second).
 		Add("Authorization", fmt.Sprintf("Basic %s", xenditApiKeyBase64)).
+		Add("api-version", "2024-11-11").
 		ContentType(fiber.MIMEApplicationJSON).JSON(xenditRequestBody)
 
 	statusCode, respByte, errs := agent.Bytes()
@@ -145,7 +132,7 @@ func (p *PaymentService) CreatePayment(c *fiber.Ctx) error {
 	return c.Status(fiber.StatusCreated).JSON(fiber.Map{
 		"message": "Payment created successfully",
 		"data": &CreatePaymentResponse{
-			XenditPaymentId: paymentRequestResponse.Id,
+			XenditPaymentId: paymentRequestResponse.PaymentRequestId,
 			Status:          paymentRequestResponse.Status,
 			FailureCode:     paymentRequestResponse.FailureCode,
 		},
@@ -215,49 +202,12 @@ func (p *PaymentService) GetPayment(c *fiber.Ctx) error {
 	paymentResponse := <-paymentResponseChan
 
 	getPaymentByIdResponse := &GetPaymentByIdResponse{
-		XenditPaymentId: paymentResponse.Id,
-		Status:          paymentResponse.Status,
-		Amount:          paymentResponse.Amount,
-		Created:         paymentResponse.Created,
-		Updated:         paymentResponse.Updated,
-		Actions: PaymentActions{
-			Ewallet:        nil,
-			VirtualAccount: nil,
-			QrCode:         nil,
-		},
-	}
-
-	if paymentResponse.Actions == nil || len(paymentResponse.Actions) == 0 {
-		return c.JSON(fiber.Map{
-			"message": "Successfully retrieved payment",
-			"data":    getPaymentByIdResponse,
-			"errors":  nil,
-		})
-	}
-
-	for _, channel := range payment_method.AllowedPaymentMethodTypeEnumValues {
-		if paymentResponse.PaymentMethod.Type == string(channel) {
-			switch channel {
-			case "EWALLET":
-				getPaymentByIdResponse.Actions.Ewallet = &EwalletActions{
-					Action:  paymentResponse.Actions[0].Action,
-					Url:     paymentResponse.Actions[0].Url,
-					Method:  paymentResponse.Actions[0].Method,
-					UrlType: paymentResponse.Actions[0].UrlType,
-				}
-				break
-			case "VIRTUAL_ACCOUNT":
-				getPaymentByIdResponse.Actions.VirtualAccount = &VirtualAccountActions{
-					VirtualAccountNumber: paymentResponse.PaymentMethod.VirtualAccount.ChannelProperties.VirtualAccountNumber,
-				}
-				break
-			case "QR_CODE":
-				getPaymentByIdResponse.Actions.QrCode = &QrCodeActions{
-					QrCodeString: paymentResponse.PaymentMethod.QrCode.QrCodeChannelProperties.QrString,
-				}
-				break
-			}
-		}
+		PaymentRequestId: paymentResponse.PaymentRequestId,
+		Status:           paymentResponse.Status,
+		RequestAmount:    paymentResponse.RequestAmount,
+		Created:          paymentResponse.Created,
+		Updated:          paymentResponse.Updated,
+		Actions:          paymentResponse.Actions,
 	}
 
 	return c.JSON(fiber.Map{
