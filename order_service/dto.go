@@ -12,8 +12,7 @@ type CreateOrderRequest struct {
 
 type CreatePaymentRequest struct {
 	ReferenceId       string `json:"reference_id" validate:"required"`
-	PaymentMethodId   string `json:"payment_method_id" validate:"required"`
-	PaymentMethodName string `json:"payment_method_name" validate:"required"`
+	ChannelCode       string `json:"channel_code" validate:"required"`
 	Amount            int    `json:"amount" validate:"required,min=1"`
 	BuyerEmail        string `json:"buyer_email" validate:"required,email"`
 	BuyerMobileNumber string `json:"buyer_mobile_number" validate:"omitempty"`
@@ -34,8 +33,7 @@ type OrderMsg struct {
 	ProductPrice       int       `json:"product_price" validate:"required,min=1"`
 	Destination        string    `json:"destination" validate:"required"`
 	ServerId           string    `json:"server_id"`
-	PaymentMethodName  string    `json:"payment_method_name" validate:"required"`
-	PaymentMethodId    string    `json:"payment_method_id" validate:"required"`
+	ChannelCode        string    `json:"channel_code"`
 	BuyerEmail         string    `json:"buyer_email" validate:"required,email"`
 	ServiceCharge      float64   `json:"service_charge" validate:"required,min=0"`
 	TotalProductAmount int       `json:"total_product_amount" validate:"required,min=1"`
@@ -43,7 +41,7 @@ type OrderMsg struct {
 	CreatedAt          time.Time `json:"created_at" validate:"required"`
 }
 
-type GetResponse[T interface{}] struct {
+type GetResponse[T any] struct {
 	Message string `json:"message"`
 	Data    T      `json:"data"`
 	Errors  any    `json:"errors"`
@@ -70,13 +68,30 @@ type PaymentActions struct {
 	QrCode         *QrCodeActions         `json:"qr_code,omitempty"`
 }
 
+type ChannelProperties struct {
+	DisplayName      string    `json:"DisplayName,omitempty"`
+	ExpiresAt        time.Time `json:"expires_at,omitempty"`
+	SuccessReturnUrl string    `json:"success_return_url,omitempty"`
+	FailureReturnUrl string    `json:"failure_return_url,omitempty"`
+	CancelReturnUrl  string    `json:"cancel_return_url,omitempty"`
+}
+
+type Action struct {
+	Type       string `json:"type" validate:"required"`
+	Descriptor string `json:"descriptor" validate:"required"`
+	Value      string `json:"value" validate:"required"`
+}
+
 type GetPaymentByIdResponse struct {
-	XenditPaymentId string         `json:"xendit_payment_id" validate:"required"`
-	Amount          int            `json:"amount" validate:"required"`
-	Status          string         `json:"status" validate:"required"`
-	Actions         PaymentActions `json:"actions" validate:"required"`
-	Created         time.Time      `json:"created" validate:"required"`
-	Updated         time.Time      `json:"updated" validate:"required"`
+	PaymentRequestId  string            `json:"payment_request_id" validate:"required"`
+	RequestAmount     int               `json:"request_amount" validate:"required"`
+	ChannelCode       string            `json:"channel_code" validate:"required"`
+	ChannelProperties ChannelProperties `json:"channel_properties" validate:"required"`
+	Actions           []Action          `json:"actions" validate:"required"`
+	Status            string            `json:"status" validate:"required"`
+	FailureCode       string            `json:"failure_code"`
+	Created           time.Time         `json:"created" validate:"required"`
+	Updated           time.Time         `json:"updated" validate:"required"`
 }
 
 type XenditPaymentRequest struct {

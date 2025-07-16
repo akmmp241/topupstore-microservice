@@ -10,7 +10,6 @@ import (
 	"math"
 	urllib "net/url"
 	"os"
-	"strings"
 	"sync"
 	"time"
 
@@ -18,7 +17,6 @@ import (
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
-	"github.com/xendit/xendit-go/v4/payment_method"
 )
 
 const AppServiceCharge int = 1000
@@ -52,8 +50,7 @@ func (o *OrderService) handleGetOrders(c *fiber.Ctx) error {
 	}
 	defer shared.CommitOrRollback(tx, nil)
 
-	query := `SELECT id, buyer_id, buyer_email, buyer_phone, product_id, product_name, destination, server_id, payment_method_id,
-       payment_method_name, total_product_amount, service_charge, total_amount, status, failure_code, created_at, updated_at FROM orders`
+	query := `SELECT id, buyer_id, buyer_email, buyer_phone, product_id, product_name, destination, server_id, total_product_amount, service_charge, total_amount, status, failure_code, created_at, updated_at FROM orders`
 
 	rows, err := tx.QueryContext(o.Ctx, query)
 	if err != nil {
@@ -66,8 +63,7 @@ func (o *OrderService) handleGetOrders(c *fiber.Ctx) error {
 	for rows.Next() {
 		var order Order
 		err := rows.Scan(&order.Id, &order.BuyerId, &order.BuyerEmail, &order.BuyerPhone, &order.ProductId,
-			&order.ProductName, &order.Destination, &order.ServerId, &order.PaymentMethodId,
-			&order.PaymentMethodName, &order.TotalProductAmount, &order.ServiceCharge,
+			&order.ProductName, &order.Destination, &order.ServerId, &order.TotalProductAmount, &order.ServiceCharge,
 			&order.TotalAmount, &order.Status, &order.FailureCode, &order.CreatedAt, &order.UpdatedAt)
 		if err != nil {
 			slog.Error("Error occurred while scanning order row", "err", err)
@@ -97,8 +93,7 @@ func (o *OrderService) handleGetOrderById(c *fiber.Ctx) error {
 	}
 	defer shared.CommitOrRollback(tx, nil)
 
-	query := `SELECT id, payment_reference_id, buyer_id, buyer_email, buyer_phone, product_id, product_name, destination, server_id, payment_method_id,
-	   payment_method_name, total_product_amount, service_charge, total_amount, status, failure_code, created_at, updated_at FROM orders WHERE id = ?`
+	query := `SELECT id, payment_reference_id, buyer_id, buyer_email, buyer_phone, product_id, product_name, destination, server_id, total_product_amount, service_charge, total_amount, status, failure_code, created_at, updated_at FROM orders WHERE id = ?`
 
 	row := tx.QueryRowContext(o.Ctx, query, orderId)
 
@@ -106,8 +101,8 @@ func (o *OrderService) handleGetOrderById(c *fiber.Ctx) error {
 	err = row.Scan(&order.Id, &order.PaymentReferenceId, &order.BuyerId, &order.BuyerEmail, &order.BuyerPhone,
 		&order.ProductId, &order.ProductName, &order.Destination,
 
-		&order.ServerId, &order.PaymentMethodId,
-		&order.PaymentMethodName, &order.TotalProductAmount,
+		&order.ServerId,
+		&order.TotalProductAmount,
 		&order.ServiceCharge, &order.TotalAmount,
 		&order.Status, &order.FailureCode,
 		&order.CreatedAt, &order.UpdatedAt)
@@ -176,8 +171,6 @@ func (o *OrderService) handleGetOrderById(c *fiber.Ctx) error {
 			"product_name":         order.ProductName,
 			"destination":          order.Destination,
 			"server_id":            order.ServerId,
-			"payment_method_id":    order.PaymentMethodId,
-			"payment_method_name":  order.PaymentMethodName,
 			"total_product_amount": order.TotalProductAmount,
 			"service_charge":       order.ServiceCharge,
 			"total_amount":         order.TotalAmount,
@@ -204,6 +197,7 @@ func (o *OrderService) handleCreateOrders(c *fiber.Ctx) error {
 
 	err = o.Validate.Struct(orderRequest)
 	if err != nil && errors.As(err, &validator.ValidationErrors{}) {
+		slog.Error("Validation Error")
 		return shared.NewFailedValidationError(*orderRequest, err.(validator.ValidationErrors))
 	}
 
@@ -322,59 +316,50 @@ func (o *OrderService) handleCreateOrders(c *fiber.Ctx) error {
 		defer wg.Done()
 		defer close(paymentMethodChan)
 
-		// payment method splitting must get two parts, e.g. "ewallet.xendit"
-		paymentMethod := strings.Split(orderRequest.PaymentMethod, ".")
-		if len(paymentMethod) != 2 {
-			slog.Error("Invalid payment method format", "method", orderRequest.PaymentMethod)
-			paymentMethodChan <- nil
-			paymentMethodErrChan <- fiber.NewError(fiber.StatusBadRequest, "Invalid payment method format")
-			return
-		}
-
-		// check if the payment method is allowed
-		for step, method := range payment_method.AllowedPaymentMethodTypeEnumValues {
-			// check if the payment method is valid
-			if step == len(payment_method.AllowedPaymentMethodTypeEnumValues)-1 {
-				slog.Error("Invalid payment method", "method", paymentMethod[0])
-				paymentMethodChan <- nil
-				paymentMethodErrChan <- fiber.NewError(fiber.StatusBadRequest, "Invalid payment method")
-				return
-			}
-
-			// skip if the payment method is not allowed
-			if paymentMethod[0] != string(method) {
+		// Check if the payment method is valid
+		for _, channel := range EwalletChannelCodes {
+			if orderRequest.PaymentMethod != channel {
 				continue
 			}
 
-			// check if the payment method is ewallet
-			if Ewallet, err := payment_method.NewEWalletChannelCodeFromValue(paymentMethod[1]); Ewallet != nil && err == nil {
-				paymentMethodChan <- &Order{
-					PaymentMethodId:   string(method),
-					PaymentMethodName: Ewallet.String(),
-					ServiceCharge:     0.04, // 4% service charge for ewallet
-				}
-				break
+			// implementation for creating ewallet payment
+			orderData.ChannelCode = orderRequest.PaymentMethod
+			paymentMethodChan <- &Order{
+				ServiceCharge: 0.04, // 4% service charge for ewallet
+				ChannelCode:   orderRequest.PaymentMethod,
+			}
+		}
+
+		for _, channel := range VirtualAccountChannelCodes {
+			if orderRequest.PaymentMethod != channel {
+				continue
 			}
 
-			// check if the payment method is a virtual account
-			if VirtualAccount, err := payment_method.NewVirtualAccountChannelCodeFromValue(paymentMethod[1]); VirtualAccount != nil && err == nil {
-				paymentMethodChan <- &Order{
-					PaymentMethodId:   string(method),
-					PaymentMethodName: VirtualAccount.String(),
-					ServiceCharge:     4000, // flat service charge for a virtual account
-				}
-				break
+			// implementation for creating virtual account payment
+			orderData.ChannelCode = orderRequest.PaymentMethod
+			paymentMethodChan <- &Order{
+				ServiceCharge: 4000, // flat service charge for a virtual account
+				ChannelCode:   orderRequest.PaymentMethod,
+			}
+		}
+
+		for _, channel := range QrisChannelCode {
+			if orderRequest.PaymentMethod != channel {
+				continue
 			}
 
-			// check if the payment method is a qris
-			if Qris, err := payment_method.NewQRCodeChannelCodeFromValue(paymentMethod[1]); Qris != nil && err == nil {
-				paymentMethodChan <- &Order{
-					PaymentMethodId:   string(method),
-					PaymentMethodName: Qris.String(),
-					ServiceCharge:     0.007, // 0.7% service charge for qris
-				}
-				break
+			// implementation for creating qris payment
+			orderData.ChannelCode = orderRequest.PaymentMethod
+			paymentMethodChan <- &Order{
+				ServiceCharge: 0.007, // 0.7% service charge for qris
+				ChannelCode:   orderRequest.PaymentMethod,
 			}
+		}
+
+		if orderData.ChannelCode == "" {
+			slog.Error("Invalid Channel Code")
+			paymentMethodErrChan <- fiber.NewError(fiber.StatusBadRequest, "Channel Code is invalid")
+			return
 		}
 
 		paymentMethodErrChan <- nil
@@ -395,8 +380,7 @@ func (o *OrderService) handleCreateOrders(c *fiber.Ctx) error {
 		// create payment request
 		var createPaymentRequest CreatePaymentRequest
 		createPaymentRequest.ReferenceId = orderData.Id
-		createPaymentRequest.PaymentMethodId = paymentMethod.PaymentMethodId
-		createPaymentRequest.PaymentMethodName = paymentMethod.PaymentMethodName
+		createPaymentRequest.ChannelCode = paymentMethod.ChannelCode
 
 		// calculate the total amount of service charge, payment method charge and product price
 		// if the service charge is less than 1, it means it's a percentage
@@ -479,8 +463,6 @@ func (o *OrderService) handleCreateOrders(c *fiber.Ctx) error {
 	orderData.PaymentReferenceId = paymentResponse.XenditPaymentId
 	orderData.ProductName = product.Name
 	orderData.TotalProductAmount = product.Price
-	orderData.PaymentMethodId = paymentMethod.PaymentMethodId
-	orderData.PaymentMethodName = paymentMethod.PaymentMethodName
 
 	// calculate the total amount of service charge, payment method charge and product price
 	// if the service charge is less than 1, it means it's a percentage
@@ -504,8 +486,8 @@ func (o *OrderService) handleCreateOrders(c *fiber.Ctx) error {
 	defer shared.CommitOrRollback(tx, err)
 
 	query := `INSERT INTO orders (id, payment_reference_id, product_id, product_name, destination, server_id, buyer_id, buyer_email,
-					buyer_phone, payment_method_id, payment_method_name, service_charge, total_product_amount, total_amount,
-					status, failure_code, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+					buyer_phone, service_charge, channel_code, total_product_amount, total_amount,
+					status, failure_code, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 	result, err := tx.ExecContext(o.Ctx, query,
 		orderData.Id,
@@ -517,9 +499,8 @@ func (o *OrderService) handleCreateOrders(c *fiber.Ctx) error {
 		orderData.BuyerId,
 		orderData.BuyerEmail,
 		orderData.BuyerPhone,
-		orderData.PaymentMethodId,
-		orderData.PaymentMethodName,
 		orderData.ServiceCharge,
+		orderData.ChannelCode,
 		orderData.TotalProductAmount,
 		orderData.TotalAmount,
 		orderData.Status,
@@ -546,8 +527,7 @@ func (o *OrderService) handleCreateOrders(c *fiber.Ctx) error {
 		ProductPrice:       orderData.TotalProductAmount,
 		Destination:        orderData.Destination,
 		ServerId:           orderData.ServerId,
-		PaymentMethodName:  orderData.PaymentMethodName,
-		PaymentMethodId:    orderData.PaymentMethodId,
+		ChannelCode:        orderData.ChannelCode,
 		BuyerEmail:         orderData.BuyerEmail,
 		ServiceCharge:      orderData.ServiceCharge,
 		TotalProductAmount: orderData.TotalProductAmount,
@@ -604,11 +584,10 @@ func (o *OrderService) handleOrderSucceededWebhook(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusNotFound, "Order not found")
 	}
 
-	query = `SELECT id, product_id, product_name, destination, server_id, payment_method_name, payment_method_id, service_charge, total_product_amount, total_amount, created_at FROM orders WHERE id = ?`
+	query = `SELECT id, product_id, product_name, destination, server_id, service_charge, total_product_amount, total_amount, created_at FROM orders WHERE id = ?`
 	row := tx.QueryRowContext(o.Ctx, query, webhookRequest.ReferenceId)
 	var order Order
-	err = row.Scan(&order.Id, &order.ProductId, &order.ProductName, &order.Destination, &order.ServerId,
-		&order.PaymentMethodName, &order.PaymentMethodId, &order.ServiceCharge, &order.TotalProductAmount, &order.TotalAmount, &order.CreatedAt)
+	err = row.Scan(&order.Id, &order.ProductId, &order.ProductName, &order.Destination, &order.ServerId, &order.ServiceCharge, &order.TotalProductAmount, &order.TotalAmount, &order.CreatedAt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			slog.Error("Order not found for payment reference ID", "id", webhookRequest.Id)
@@ -626,8 +605,6 @@ func (o *OrderService) handleOrderSucceededWebhook(c *fiber.Ctx) error {
 		ProductPrice:       order.TotalProductAmount,
 		Destination:        order.Destination,
 		ServerId:           order.ServerId,
-		PaymentMethodName:  order.PaymentMethodName,
-		PaymentMethodId:    order.PaymentMethodId,
 		BuyerEmail:         order.BuyerEmail,
 		ServiceCharge:      order.ServiceCharge,
 		TotalProductAmount: order.TotalProductAmount,
@@ -679,11 +656,10 @@ func (o *OrderService) handleOrderFailedWebhook(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusNotFound, "Order not found")
 	}
 
-	query = `SELECT id, product_id, product_name, destination, server_id, payment_method_name, payment_method_id, service_charge, total_product_amount, total_amount, created_at FROM orders WHERE id = ?`
+	query = `SELECT id, product_id, product_name, destination, server_id, service_charge, total_product_amount, total_amount, created_at FROM orders WHERE id = ?`
 	row := tx.QueryRowContext(o.Ctx, query, webhookRequest.ReferenceId)
 	var order Order
-	err = row.Scan(&order.Id, &order.ProductId, &order.ProductName, &order.Destination, &order.ServerId,
-		&order.PaymentMethodName, &order.PaymentMethodId, &order.ServiceCharge, &order.TotalProductAmount, &order.TotalAmount, &order.CreatedAt)
+	err = row.Scan(&order.Id, &order.ProductId, &order.ProductName, &order.Destination, &order.ServerId, &order.ServiceCharge, &order.TotalProductAmount, &order.TotalAmount, &order.CreatedAt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			slog.Error("Order not found for payment reference ID", "id", webhookRequest.Id)
@@ -702,8 +678,6 @@ func (o *OrderService) handleOrderFailedWebhook(c *fiber.Ctx) error {
 		ProductPrice:       order.TotalProductAmount,
 		Destination:        order.Destination,
 		ServerId:           order.ServerId,
-		PaymentMethodName:  order.PaymentMethodName,
-		PaymentMethodId:    order.PaymentMethodId,
 		BuyerEmail:         order.BuyerEmail,
 		ServiceCharge:      order.ServiceCharge,
 		TotalProductAmount: order.TotalProductAmount,
@@ -741,16 +715,14 @@ func (o *OrderService) handleSimulatePayment(c *fiber.Ctx) error {
 	}
 	defer shared.CommitOrRollback(tx, nil)
 
-	query := `SELECT id, payment_reference_id, buyer_id, buyer_email, buyer_phone, product_id, product_name, destination, server_id, payment_method_id,
-	   payment_method_name, total_product_amount, service_charge, total_amount, status, failure_code, created_at, updated_at FROM orders WHERE id = ?`
+	query := `SELECT id, payment_reference_id, buyer_id, buyer_email, buyer_phone, product_id, product_name, channel_code, destination, server_id, total_product_amount, service_charge, total_amount, status, failure_code, created_at, updated_at FROM orders WHERE id = ?`
 
 	row := tx.QueryRowContext(o.Ctx, query, orderId)
 
 	var order Order
 	err = row.Scan(&order.Id, &order.PaymentReferenceId, &order.BuyerId, &order.BuyerEmail, &order.BuyerPhone,
-		&order.ProductId, &order.ProductName, &order.Destination,
-		&order.ServerId, &order.PaymentMethodId,
-		&order.PaymentMethodName, &order.TotalProductAmount,
+		&order.ProductId, &order.ProductName, &order.ChannelCode, &order.Destination,
+		&order.ServerId, &order.TotalProductAmount,
 		&order.ServiceCharge, &order.TotalAmount,
 		&order.Status, &order.FailureCode,
 		&order.CreatedAt, &order.UpdatedAt)
@@ -801,7 +773,6 @@ func (o *OrderService) handleSimulatePayment(c *fiber.Ctx) error {
 	}()
 
 	if err = <-paymentServiceErrChan; err != nil {
-		slog.Error("Error occurred while getting payment details", "error", err)
 		return err
 	}
 
