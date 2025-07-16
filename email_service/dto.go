@@ -38,8 +38,7 @@ type OrderMsg struct {
 	ProductPrice       float64   `json:"product_price" validate:"required,min=1"`
 	Destination        string    `json:"destination" validate:"required"`
 	ServerId           string    `json:"server_id"`
-	PaymentMethodName  string    `json:"payment_method_name" validate:"required"`
-	PaymentMethodId    string    `json:"payment_method_id" validate:"required"`
+	ChannelCode        string    `json:"channel_code"`
 	BuyerEmail         string    `json:"buyer_email" validate:"required,email"`
 	ServiceCharge      float64   `json:"service_charge" validate:"required,min=0"`
 	TotalProductAmount float64   `json:"total_product_amount" validate:"required,min=1"`
