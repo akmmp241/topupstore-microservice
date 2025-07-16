@@ -133,3 +133,6 @@ alter table orders modify column buyer_email varchar(255) not null;
 alter table orders modify column buyer_phone varchar(255) default null null;
 alter table orders add column failure_code varchar(50) default null null after status;
 alter table orders add column payment_reference_id varchar(255) default null null after id;
+ALTER TABLE orders drop column payment_method_id, payment_method_name;
+ALTER TABLE orders add column channel_code varchar(100) not null after server_id;
+
