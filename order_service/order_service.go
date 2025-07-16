@@ -794,14 +794,14 @@ func (o *OrderService) handleSimulatePayment(c *fiber.Ctx) error {
 		})
 	}
 
-	if paymentResponse.XenditPaymentId == "EWALLET" {
-		err := handleEwalletPaymentSimulation(paymentResponse.Actions.Ewallet)
+	if paymentResponse.Actions[0].Type == "REDIRECT_CUSTOMER" {
+		err := handleEwalletPaymentSimulation(paymentResponse.Actions[0].Value)
 		if err != nil {
 			slog.Error("Error occurred while handling ewallet payment simulation", "err", err)
 			return err
 		}
 	} else {
-		err = handleOthersPaymentSimulation(&paymentResponse.Actions, order.PaymentReferenceId, paymentResponse.Amount)
+		err = handleOthersPaymentSimulation(order.PaymentReferenceId, paymentResponse.RequestAmount)
 		if err != nil {
 			slog.Error("Error occured while handling payment simulation", "err", err)
 			return err
@@ -815,8 +815,8 @@ func (o *OrderService) handleSimulatePayment(c *fiber.Ctx) error {
 	})
 }
 
-func handleEwalletPaymentSimulation(ewalletAction *EwalletActions) error {
-	parsedPaymentUrl, err := urllib.Parse(ewalletAction.Url)
+func handleEwalletPaymentSimulation(urlAction string) error {
+	parsedPaymentUrl, err := urllib.Parse(urlAction)
 	if err != nil {
 		slog.Error("Error occurred while parsing ewallet payment url", "err", err)
 		return err
@@ -829,7 +829,7 @@ func handleEwalletPaymentSimulation(ewalletAction *EwalletActions) error {
 	}
 
 	urlPayment := fmt.Sprintf("https://ewallet-mock-connector.xendit.co/v1/ewallet_connector/payment_callbacks?token=%s", paymentToken)
-	agent := fiber.Post(urlPayment)
+	agent := fiber.Post(urlPayment).Timeout(15 * time.Second)
 
 	statusCode, body, errs := agent.Bytes()
 
@@ -857,17 +857,12 @@ func handleEwalletPaymentSimulation(ewalletAction *EwalletActions) error {
 	return fiber.NewError(fiber.StatusExpectationFailed, "Payment failed")
 }
 
-func handleOthersPaymentSimulation(paymentAction *PaymentActions, prId string, amount int) error {
-	// check payment method
-	if paymentAction.VirtualAccount == nil || paymentAction.QrCode == nil {
-		return fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
-	}
-
+func handleOthersPaymentSimulation(prId string, amount int) error {
 	xenditBaseUrl := os.Getenv("XENDIT_API_URL")
 	paymentSimulationUrl := fmt.Sprintf("%s/v3/payment_requests/%s/simulate", xenditBaseUrl, prId)
 
-	agent := fiber.Post(paymentSimulationUrl).
-		Set("api-version", "2024-11-11").
+	agent := fiber.Post(paymentSimulationUrl).Timeout(15*time.Second).
+		Add("api-version", "2024-11-11").
 		JSON(fiber.Map{
 			"amount": amount,
 		})
