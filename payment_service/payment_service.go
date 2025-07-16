@@ -7,13 +7,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/akmmp241/topupstore-microservice/shared"
-	"github.com/go-playground/validator/v10"
-	"github.com/gofiber/fiber/v2"
 	"log/slog"
 	"math"
 	"os"
+	"strings"
 	"time"
+
+	"github.com/akmmp241/topupstore-microservice/shared"
+	"github.com/go-playground/validator/v10"
+	"github.com/gofiber/fiber/v2"
 )
 
 type PaymentService struct {
@@ -41,7 +43,8 @@ func (p *PaymentService) CreatePayment(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "Invalid request body")
 	}
 
-	if err := p.Validator.Struct(paymentRequest); err != nil && errors.As(err, &validator.ValidationErrors{}) {
+	if err := p.Validator.Struct(paymentRequest); err != nil &&
+		errors.As(err, &validator.ValidationErrors{}) {
 		return shared.NewFailedValidationError(*paymentRequest, err.(validator.ValidationErrors))
 	}
 
@@ -54,8 +57,9 @@ func (p *PaymentService) CreatePayment(c *fiber.Ctx) error {
 		ReferenceId:   paymentRequest.ReferenceId,
 	}
 
+	displayName := strings.Replace(paymentRequest.BuyerEmail, "@", "..", 1)
 	xenditRequestBody.ChannelProperties = ChannelProperties{
-		DisplayName:      paymentRequest.BuyerEmail,
+		DisplayName:      displayName,
 		ExpiresAt:        time.Now().Add(time.Hour),
 		SuccessReturnUrl: "https://www.xendit.co/success",
 		FailureReturnUrl: "https://www.xendit.co/failure",
@@ -109,7 +113,13 @@ func (p *PaymentService) CreatePayment(c *fiber.Ctx) error {
 	statusCode, respByte, errs := agent.Bytes()
 
 	if len(errs) > 0 {
-		slog.Error("Error occurred while calling xendit payment request api", "errs", errs, "resp", string(respByte))
+		slog.Error(
+			"Error occurred while calling xendit payment request api",
+			"errs",
+			errs,
+			"resp",
+			string(respByte),
+		)
 		return fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
 	}
 
@@ -120,14 +130,24 @@ func (p *PaymentService) CreatePayment(c *fiber.Ctx) error {
 		if err != nil {
 			return fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
 		}
-		slog.Error("xendit payment request api returned non-200 status code", "code", statusCode, "resp", string(respByte))
+		slog.Error(
+			"xendit payment request api returned non-200 status code",
+			"code",
+			statusCode,
+			"resp",
+			string(respByte),
+		)
 		return fiber.NewError(statusCode, errMsg.Message)
 	}
 
 	var paymentRequestResponse XenditPaymentRequestResponse
 	err = json.Unmarshal(respByte, &paymentRequestResponse)
 	if err != nil {
-		slog.Error("Error occurred while unmarshalling xendit payment request api response", "err", err)
+		slog.Error(
+			"Error occurred while unmarshalling xendit payment request api response",
+			"err",
+			err,
+		)
 		return fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
 	}
 
@@ -143,7 +163,6 @@ func (p *PaymentService) CreatePayment(c *fiber.Ctx) error {
 }
 
 func (p *PaymentService) GetPayment(c *fiber.Ctx) error {
-
 	paymentId := c.Params("id")
 	if paymentId == "" {
 		slog.Error("Payment ID is required", "error", "Payment ID cannot be empty")
@@ -169,7 +188,13 @@ func (p *PaymentService) GetPayment(c *fiber.Ctx) error {
 		statusCode, respByte, errs := agent.Bytes()
 
 		if len(errs) > 0 {
-			slog.Error("Error occurred while calling xendit payment request api", "errs", errs, "resp", string(respByte))
+			slog.Error(
+				"Error occurred while calling xendit payment request api",
+				"errs",
+				errs,
+				"resp",
+				string(respByte),
+			)
 			getPaymentErrChan <- fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
 			return
 		}
@@ -182,14 +207,24 @@ func (p *PaymentService) GetPayment(c *fiber.Ctx) error {
 				getPaymentErrChan <- fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
 				return
 			}
-			slog.Error("xendit payment request api returned non-200 status code", "code", statusCode, "resp", string(respByte))
+			slog.Error(
+				"xendit payment request api returned non-200 status code",
+				"code",
+				statusCode,
+				"resp",
+				string(respByte),
+			)
 			getPaymentErrChan <- fiber.NewError(statusCode, errMsg.Message)
 		}
 
 		var paymentRequestResponse XenditPaymentRequestResponse
 		err := json.Unmarshal(respByte, &paymentRequestResponse)
 		if err != nil {
-			slog.Error("Error occurred while unmarshalling xendit payment request api response", "err", err)
+			slog.Error(
+				"Error occurred while unmarshalling xendit payment request api response",
+				"err",
+				err,
+			)
 			getPaymentErrChan <- fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
 		}
 
