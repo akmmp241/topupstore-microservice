@@ -4,16 +4,17 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
+	"os"
+	"strconv"
+	"time"
+
 	"github.com/akmmp241/topupstore-microservice/shared"
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 	"golang.org/x/crypto/bcrypt"
-	"log/slog"
-	"os"
-	"strconv"
-	"time"
 )
 
 type AuthService struct {
@@ -40,7 +41,6 @@ func (s *AuthService) RegisterRoutes(router fiber.Router) {
 }
 
 func (s *AuthService) handleRegister(c *fiber.Ctx) error {
-
 	registerRequest := &RegisterRequest{}
 	err := c.BodyParser(registerRequest)
 	if err != nil {
@@ -71,9 +71,13 @@ func (s *AuthService) handleRegister(c *fiber.Ctx) error {
 	}
 
 	newRegistrationMsg := &NewRegistrationMessage{
-		Email:           registerRequest.Email,
-		Name:            registerRequest.Name,
-		VerificationUrl: fmt.Sprintf("%s/api/auth/verify/%s", os.Getenv("APP_URL"), registerRequest.EmailVerificationToken),
+		Email: registerRequest.Email,
+		Name:  registerRequest.Name,
+		VerificationUrl: fmt.Sprintf(
+			"%s/api/auth/verify/%s",
+			os.Getenv("APP_URL"),
+			registerRequest.EmailVerificationToken,
+		),
 	}
 
 	newRegistrationMsgBytes, err := json.Marshal(newRegistrationMsg)
@@ -92,7 +96,6 @@ func (s *AuthService) handleRegister(c *fiber.Ctx) error {
 }
 
 func (s *AuthService) Login(c *fiber.Ctx) error {
-
 	loginRequest := &LoginRequest{}
 	err := c.BodyParser(loginRequest)
 	if err != nil {
@@ -127,7 +130,10 @@ func (s *AuthService) Login(c *fiber.Ctx) error {
 	}
 	userResponse := getUserResponse.Data
 
-	err = bcrypt.CompareHashAndPassword([]byte(userResponse.Password), []byte(loginRequest.Password))
+	err = bcrypt.CompareHashAndPassword(
+		[]byte(userResponse.Password),
+		[]byte(loginRequest.Password),
+	)
 	if err != nil {
 		slog.Error("Error occurred while comparing passwords", "err", err)
 		return fiber.NewError(fiber.StatusUnauthorized, "Invalid credentials")
@@ -202,7 +208,10 @@ func (s *AuthService) handleForgotPassword(c *fiber.Ctx) error {
 
 	err = s.Validator.Struct(forgotPasswordRequest)
 	if err != nil && errors.As(err, &validator.ValidationErrors{}) {
-		return shared.NewFailedValidationError(*forgotPasswordRequest, err.(validator.ValidationErrors))
+		return shared.NewFailedValidationError(
+			*forgotPasswordRequest,
+			err.(validator.ValidationErrors),
+		)
 	}
 
 	url := fmt.Sprintf("/users?email=%s", forgotPasswordRequest.Email)
@@ -282,7 +291,10 @@ func (s *AuthService) handleResetPassword(c *fiber.Ctx) error {
 	err = s.Validator.Struct(resetPasswordRequest)
 
 	if err != nil && errors.As(err, &validator.ValidationErrors{}) {
-		return shared.NewFailedValidationError(*resetPasswordRequest, err.(validator.ValidationErrors))
+		return shared.NewFailedValidationError(
+			*resetPasswordRequest,
+			err.(validator.ValidationErrors),
+		)
 	}
 
 	// checks both password and confirm_password's integrity
@@ -317,7 +329,7 @@ func (s *AuthService) handleResetPassword(c *fiber.Ctx) error {
 
 	if resp.StatusCode != fiber.StatusOK {
 		slog.Error("User service returned non-200 status code", "code", resp.StatusCode)
-		return fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
+		return fiber.NewError(resp.StatusCode, "Internal Server Error")
 	}
 
 	// Delete the reset token from Redis
