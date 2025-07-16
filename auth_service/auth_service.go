@@ -306,10 +306,8 @@ func (s *AuthService) handleResetPassword(c *fiber.Ctx) error {
 	// checks reset token integrity by accessing redis
 	key := fmt.Sprintf("forgot-password:%s", resetPasswordRequest.ResetToken)
 	val, err := s.RedisClient.Get(c.Context(), key).Result()
-	if err != nil {
-		return err
-	}
-	if val == "" {
+
+	if val == "" || err != nil {
 		slog.Error("Reset token is not valid", "err", err)
 		return fiber.NewError(fiber.StatusBadRequest, "Reset token is not valid")
 	}
