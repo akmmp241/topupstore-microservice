@@ -47,8 +47,19 @@ func (p *PaymentService) CreatePayment(c *fiber.Ctx) error {
 
 	xenditRequestBody := XenditRequestBody{
 		Currency:      "IDR",
+		Country:       "ID",
+		Type:          "PAY",
+		CaptureMethod: "AUTOMATIC",
 		RequestAmount: int(math.Ceil(paymentRequest.Amount)),
 		ReferenceId:   paymentRequest.ReferenceId,
+	}
+
+	xenditRequestBody.ChannelProperties = ChannelProperties{
+		DisplayName:      paymentRequest.BuyerEmail,
+		ExpiresAt:        time.Now().Add(time.Hour),
+		SuccessReturnUrl: "https://www.xendit.co/success",
+		FailureReturnUrl: "https://www.xendit.co/failure",
+		CancelReturnUrl:  "https://www.xendit.co/cancel",
 	}
 
 	// Check if the payment method is valid
@@ -59,11 +70,6 @@ func (p *PaymentService) CreatePayment(c *fiber.Ctx) error {
 
 		// implementation for creating ewallet payment
 		xenditRequestBody.ChannelCode = channel
-		xenditRequestBody.ChannelProperties = ChannelProperties{
-			SuccessReturnUrl: "https://www.xendit.co/success",
-			FailureReturnUrl: "https://www.xendit.co/failure",
-			CancelReturnUrl:  "https://www.xendit.co/cancel",
-		}
 	}
 
 	for _, channel := range VirtualAccountChannelCodes {
@@ -73,10 +79,6 @@ func (p *PaymentService) CreatePayment(c *fiber.Ctx) error {
 
 		// implementation for creating virtual account payment
 		xenditRequestBody.ChannelCode = channel
-		xenditRequestBody.ChannelProperties = ChannelProperties{
-			DisplayName: paymentRequest.BuyerEmail,
-			ExpiresAt:   time.Now().Add(time.Hour),
-		}
 	}
 
 	for _, channel := range QrisChannelCode {
@@ -161,7 +163,8 @@ func (p *PaymentService) GetPayment(c *fiber.Ctx) error {
 		paymentReqUrl := fmt.Sprintf("%s/payment_requests/%s", xenditHost, paymentId)
 
 		agent := fiber.Get(paymentReqUrl).Timeout(15*time.Second).
-			Add("Authorization", fmt.Sprintf("Basic %s", xenditApiKeyBase64))
+			Add("Authorization", fmt.Sprintf("Basic %s", xenditApiKeyBase64)).
+			Add("api-version", "2024-11-11")
 
 		statusCode, respByte, errs := agent.Bytes()
 
@@ -202,12 +205,15 @@ func (p *PaymentService) GetPayment(c *fiber.Ctx) error {
 	paymentResponse := <-paymentResponseChan
 
 	getPaymentByIdResponse := &GetPaymentByIdResponse{
-		PaymentRequestId: paymentResponse.PaymentRequestId,
-		Status:           paymentResponse.Status,
-		RequestAmount:    paymentResponse.RequestAmount,
-		Created:          paymentResponse.Created,
-		Updated:          paymentResponse.Updated,
-		Actions:          paymentResponse.Actions,
+		PaymentRequestId:  paymentResponse.PaymentRequestId,
+		Status:            paymentResponse.Status,
+		RequestAmount:     paymentResponse.RequestAmount,
+		ChannelCode:       paymentResponse.ChannelCode,
+		ChannelProperties: paymentResponse.ChannelProperties,
+		FailureCode:       paymentResponse.FailureCode,
+		Created:           paymentResponse.Created,
+		Updated:           paymentResponse.Updated,
+		Actions:           paymentResponse.Actions,
 	}
 
 	return c.JSON(fiber.Map{

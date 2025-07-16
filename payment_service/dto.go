@@ -5,8 +5,6 @@ import "time"
 type CreatePaymentRequest struct {
 	ReferenceId       string  `json:"reference_id" validate:"required"`
 	ChannelCode       string  `json:"channel_code" validate:"required"`
-	PaymentMethodId   string  `json:"payment_method_id" validate:"required"`
-	PaymentMethodName string  `json:"payment_method_name" validate:"required"`
 	Amount            float64 `json:"amount" validate:"required,min=1"`
 	BuyerEmail        string  `json:"buyer_email" validate:"required,email"`
 	BuyerMobileNumber string  `json:"buyer_mobile_number" validate:"omitempty"`
@@ -47,8 +45,10 @@ type ChannelProperties struct {
 
 type XenditRequestBody struct {
 	Currency          string            `json:"currency" validate:"required"`
+	Type              string            `json:"type"`
 	RequestAmount     int               `json:"request_amount" validate:"required,min=1"`
 	Country           string            `json:"country"`
+	CaptureMethod     string            `json:"capture_method"`
 	ReferenceId       string            `json:"reference_id" validate:"required"`
 	ChannelCode       string            `json:"channel_code"`
 	ChannelProperties ChannelProperties `json:"channel_properties"`
