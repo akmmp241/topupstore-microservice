@@ -28,7 +28,11 @@ type OrderService struct {
 	Producer *KafkaProducer
 }
 
-func NewOrderService(DB *sql.DB, validate *validator.Validate, producer *KafkaProducer) *OrderService {
+func NewOrderService(
+	DB *sql.DB,
+	validate *validator.Validate,
+	producer *KafkaProducer,
+) *OrderService {
 	return &OrderService{DB: DB, Validate: validate, Ctx: context.Background(), Producer: producer}
 }
 
@@ -42,7 +46,6 @@ func (o *OrderService) RegisterRoutes(app fiber.Router) {
 }
 
 func (o *OrderService) handleGetOrders(c *fiber.Ctx) error {
-
 	tx, err := o.DB.Begin()
 	if err != nil {
 		slog.Error("Error occurred while starting transaction", "err", err)
@@ -62,9 +65,23 @@ func (o *OrderService) handleGetOrders(c *fiber.Ctx) error {
 	var orders []Order
 	for rows.Next() {
 		var order Order
-		err := rows.Scan(&order.Id, &order.BuyerId, &order.BuyerEmail, &order.BuyerPhone, &order.ProductId,
-			&order.ProductName, &order.Destination, &order.ServerId, &order.TotalProductAmount, &order.ServiceCharge,
-			&order.TotalAmount, &order.Status, &order.FailureCode, &order.CreatedAt, &order.UpdatedAt)
+		err := rows.Scan(
+			&order.Id,
+			&order.BuyerId,
+			&order.BuyerEmail,
+			&order.BuyerPhone,
+			&order.ProductId,
+			&order.ProductName,
+			&order.Destination,
+			&order.ServerId,
+			&order.TotalProductAmount,
+			&order.ServiceCharge,
+			&order.TotalAmount,
+			&order.Status,
+			&order.FailureCode,
+			&order.CreatedAt,
+			&order.UpdatedAt,
+		)
 		if err != nil {
 			slog.Error("Error occurred while scanning order row", "err", err)
 			return err
@@ -80,7 +97,6 @@ func (o *OrderService) handleGetOrders(c *fiber.Ctx) error {
 }
 
 func (o *OrderService) handleGetOrderById(c *fiber.Ctx) error {
-
 	orderId := c.Params("id")
 	if orderId == "" {
 		return fiber.NewError(fiber.StatusBadRequest, "Order ID is required")
@@ -98,15 +114,25 @@ func (o *OrderService) handleGetOrderById(c *fiber.Ctx) error {
 	row := tx.QueryRowContext(o.Ctx, query, orderId)
 
 	var order Order
-	err = row.Scan(&order.Id, &order.PaymentReferenceId, &order.BuyerId, &order.BuyerEmail, &order.BuyerPhone,
-		&order.ProductId, &order.ProductName, &order.Destination,
+	err = row.Scan(
+		&order.Id,
+		&order.PaymentReferenceId,
+		&order.BuyerId,
+		&order.BuyerEmail,
+		&order.BuyerPhone,
+		&order.ProductId,
+		&order.ProductName,
+		&order.Destination,
 
 		&order.ServerId,
 		&order.TotalProductAmount,
-		&order.ServiceCharge, &order.TotalAmount,
-		&order.Status, &order.FailureCode,
-		&order.CreatedAt, &order.UpdatedAt)
-
+		&order.ServiceCharge,
+		&order.TotalAmount,
+		&order.Status,
+		&order.FailureCode,
+		&order.CreatedAt,
+		&order.UpdatedAt,
+	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return fiber.NewError(fiber.StatusNotFound, "Order not found")
@@ -125,17 +151,31 @@ func (o *OrderService) handleGetOrderById(c *fiber.Ctx) error {
 		paymentServiceHost := os.Getenv("PAYMENT_SERVICE_HOST")
 		paymentServicePort := os.Getenv("PAYMENT_SERVICE_PORT")
 		url := fmt.Sprintf("/payments/%s", order.PaymentReferenceId)
-		paymentServiceResponse, err := shared.CallService(paymentServiceHost, paymentServicePort, url, fiber.MethodGet, nil)
+		paymentServiceResponse, err := shared.CallService(
+			paymentServiceHost,
+			paymentServicePort,
+			url,
+			fiber.MethodGet,
+			nil,
+		)
 
 		if err != nil || len(paymentServiceResponse.Errs) > 0 {
-			slog.Error("Error occurred while calling payment service", "errs", paymentServiceResponse.Errs)
+			slog.Error(
+				"Error occurred while calling payment service",
+				"errs",
+				paymentServiceResponse.Errs,
+			)
 			slog.Error("Error occurred while calling payment service", "err", err)
 			paymentServiceErrChan <- fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
 			return
 		}
 
 		if paymentServiceResponse.StatusCode != fiber.StatusOK {
-			slog.Error("payment service returned non-200 status code", "code", paymentServiceResponse.StatusCode)
+			slog.Error(
+				"payment service returned non-200 status code",
+				"code",
+				paymentServiceResponse.StatusCode,
+			)
 			paymentServiceErrChan <- fiber.NewError(paymentServiceResponse.StatusCode, string(paymentServiceResponse.Body))
 			return
 		}
@@ -185,7 +225,6 @@ func (o *OrderService) handleGetOrderById(c *fiber.Ctx) error {
 }
 
 func (o *OrderService) handleCreateOrders(c *fiber.Ctx) error {
-
 	orderRequest := &CreateOrderRequest{}
 	orderData := &Order{}
 
@@ -239,10 +278,20 @@ func (o *OrderService) handleCreateOrders(c *fiber.Ctx) error {
 			userServiceHost := os.Getenv("USER_SERVICE_HOST")
 			userServicePort := os.Getenv("USER_SERVICE_PORT")
 			url := fmt.Sprintf("/users?id=%s", userId)
-			userServiceResponse, err := shared.CallService(userServiceHost, userServicePort, url, fiber.MethodGet, nil)
+			userServiceResponse, err := shared.CallService(
+				userServiceHost,
+				userServicePort,
+				url,
+				fiber.MethodGet,
+				nil,
+			)
 
 			if err != nil || len(userServiceResponse.Errs) > 0 {
-				slog.Error("Error occurred while calling user service", "errs", userServiceResponse.Errs)
+				slog.Error(
+					"Error occurred while calling user service",
+					"errs",
+					userServiceResponse.Errs,
+				)
 				slog.Error("Error occurred while calling user service", "err", err)
 				userChannel <- nil
 				userServiceErrChan <- fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
@@ -250,7 +299,11 @@ func (o *OrderService) handleCreateOrders(c *fiber.Ctx) error {
 			}
 
 			if userServiceResponse.StatusCode != fiber.StatusOK {
-				slog.Error("User service returned non-200 status code", "code", userServiceResponse.StatusCode)
+				slog.Error(
+					"User service returned non-200 status code",
+					"code",
+					userServiceResponse.StatusCode,
+				)
 				userChannel <- nil
 				userServiceErrChan <- fiber.NewError(userServiceResponse.StatusCode, string(userServiceResponse.Body))
 				return
@@ -279,28 +332,50 @@ func (o *OrderService) handleCreateOrders(c *fiber.Ctx) error {
 		var response GetResponse[Product]
 		productServiceHost := os.Getenv("PRODUCT_SERVICE_HOST")
 		productServicePort := os.Getenv("PRODUCT_SERVICE_PORT")
-		url := fmt.Sprintf("/products/%s", orderRequest.ProductId)
-		productServiceResponse, err := shared.CallService(productServiceHost, productServicePort, url, fiber.MethodGet, nil)
+		url := fmt.Sprintf("/products/%d", orderRequest.ProductId)
+		productServiceResponse, err := shared.CallService(
+			productServiceHost,
+			productServicePort,
+			url,
+			fiber.MethodGet,
+			nil,
+		)
 
 		if err != nil || len(productServiceResponse.Errs) > 0 {
-			slog.Error("Error occurred while calling product service", "errs", productServiceResponse.Errs)
+			slog.Error(
+				"Error occurred while calling product service",
+				"errs",
+				productServiceResponse.Errs,
+			)
 			slog.Error("Error occurred while calling product service", "err", err)
-			productChannel <- nil
 			productServiceErrChan <- fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
 			return
 		}
 
 		if productServiceResponse.StatusCode != fiber.StatusOK {
-			slog.Error("Product service returned non-200 status code", "code", productServiceResponse.StatusCode)
-			productChannel <- nil
-			productServiceErrChan <- fiber.NewError(productServiceResponse.StatusCode, string(productServiceResponse.Body))
+
+			var errResp GetResponse[any]
+
+			err := json.Unmarshal(productServiceResponse.Body, &errResp)
+			if err != nil {
+				productServiceErrChan <- fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
+				return
+			}
+
+			slog.Error(
+				"Product service returned non-200 status code",
+				"code",
+				productServiceResponse.StatusCode,
+				"message",
+				errResp.Message,
+			)
+			productServiceErrChan <- fiber.NewError(productServiceResponse.StatusCode, errResp.Message)
 			return
 		}
 
 		err = json.Unmarshal(productServiceResponse.Body, &response)
 		if err != nil {
 			slog.Error("Error occurred while unmarshalling product response", "err", err)
-			productChannel <- nil
 			productServiceErrChan <- fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
 			return
 		}
@@ -358,7 +433,8 @@ func (o *OrderService) handleCreateOrders(c *fiber.Ctx) error {
 
 		if orderData.ChannelCode == "" {
 			slog.Error("Invalid Channel Code")
-			paymentMethodErrChan <- fiber.NewError(fiber.StatusBadRequest, "Channel Code is invalid")
+			paymentMethodErrChan <- fiber.NewError(fiber.StatusBadRequest, "Invalid channel code")
+			paymentMethodChan <- nil
 			return
 		}
 
@@ -377,6 +453,20 @@ func (o *OrderService) handleCreateOrders(c *fiber.Ctx) error {
 		product = <-productChannel
 		paymentMethod = <-paymentMethodChan
 
+		if product == nil {
+			errTemp := <-productServiceErrChan
+			paymentServiceErrChan <- errTemp
+			productServiceErrChan <- errTemp
+			return
+		}
+
+		if paymentMethod == nil {
+			errTemp := <-paymentMethodErrChan
+			paymentServiceErrChan <- errTemp
+			paymentMethodErrChan <- errTemp
+			return
+		}
+
 		// create payment request
 		var createPaymentRequest CreatePaymentRequest
 		createPaymentRequest.ReferenceId = orderData.Id
@@ -385,7 +475,9 @@ func (o *OrderService) handleCreateOrders(c *fiber.Ctx) error {
 		// calculate the total amount of service charge, payment method charge and product price
 		// if the service charge is less than 1, it means it's a percentage
 		if paymentMethod.ServiceCharge < 1 {
-			createPaymentRequest.Amount = int((float64(product.Price)*paymentMethod.ServiceCharge)+float64(product.Price)) + AppServiceCharge
+			createPaymentRequest.Amount = int(
+				(float64(product.Price)*paymentMethod.ServiceCharge)+float64(product.Price),
+			) + AppServiceCharge
 		} else {
 			createPaymentRequest.Amount = int(float64(product.Price)+paymentMethod.ServiceCharge) + AppServiceCharge
 		}
@@ -400,10 +492,20 @@ func (o *OrderService) handleCreateOrders(c *fiber.Ctx) error {
 		paymentServiceHost := os.Getenv("PAYMENT_SERVICE_HOST")
 		paymentServicePort := os.Getenv("PAYMENT_SERVICE_PORT")
 		url := "/payments"
-		paymentServiceResponse, err := shared.CallService(paymentServiceHost, paymentServicePort, url, fiber.MethodPost, &createPaymentRequest)
+		paymentServiceResponse, err := shared.CallService(
+			paymentServiceHost,
+			paymentServicePort,
+			url,
+			fiber.MethodPost,
+			&createPaymentRequest,
+		)
 
 		if err != nil || len(paymentServiceResponse.Errs) > 0 {
-			slog.Error("Error occurred while calling payment service", "errs", paymentServiceResponse.Errs)
+			slog.Error(
+				"Error occurred while calling payment service",
+				"errs",
+				paymentServiceResponse.Errs,
+			)
 			slog.Error("Error occurred while calling payment service", "err", err)
 			paymentServiceErrChan <- fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
 			return
@@ -417,9 +519,16 @@ func (o *OrderService) handleCreateOrders(c *fiber.Ctx) error {
 			if err != nil {
 				slog.Error("Error occurred while calling payment service", "err", err)
 				paymentServiceErrChan <- fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
+				return
 			}
 
-			slog.Error("payment service returned non-200 status code", "code", paymentServiceResponse.StatusCode, "body", string(paymentServiceResponse.Body))
+			slog.Error(
+				"payment service returned non-200 status code",
+				"code",
+				paymentServiceResponse.StatusCode,
+				"body",
+				string(paymentServiceResponse.Body),
+			)
 			paymentServiceErrChan <- fiber.NewError(paymentServiceResponse.StatusCode, errResp.Message)
 			return
 		}
@@ -467,8 +576,18 @@ func (o *OrderService) handleCreateOrders(c *fiber.Ctx) error {
 	// calculate the total amount of service charge, payment method charge and product price
 	// if the service charge is less than 1, it means it's a percentage
 	if paymentMethod.ServiceCharge < 1 {
-		orderData.ServiceCharge = (float64(product.Price) * paymentMethod.ServiceCharge) + float64(AppServiceCharge)
-		orderData.TotalAmount = int(math.Ceil((float64(product.Price) * paymentMethod.ServiceCharge) + float64(product.Price) + float64(AppServiceCharge)))
+		orderData.ServiceCharge = (float64(product.Price) * paymentMethod.ServiceCharge) + float64(
+			AppServiceCharge,
+		)
+		orderData.TotalAmount = int(
+			math.Ceil(
+				(float64(product.Price) * paymentMethod.ServiceCharge) + float64(
+					product.Price,
+				) + float64(
+					AppServiceCharge,
+				),
+			),
+		)
 	} else {
 		orderData.ServiceCharge = paymentMethod.ServiceCharge + float64(AppServiceCharge)
 		orderData.TotalAmount = product.Price + int(paymentMethod.ServiceCharge) + AppServiceCharge
@@ -508,7 +627,6 @@ func (o *OrderService) handleCreateOrders(c *fiber.Ctx) error {
 		orderData.CreatedAt,
 		orderData.CreatedAt, // assuming updated_at is the same as created_at for new orders
 	)
-
 	if err != nil {
 		slog.Error("Error occurred while inserting order", "err", err)
 		return fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
@@ -570,12 +688,34 @@ func (o *OrderService) handleOrderSucceededWebhook(c *fiber.Ctx) error {
 	}
 	defer shared.CommitOrRollback(tx, nil)
 
-	slog.Info("Updating order status", "id", webhookRequest.ReferenceId, "status", webhookRequest.Status, "failure_code", webhookRequest.FailureCode)
+	slog.Info(
+		"Updating order status",
+		"id",
+		webhookRequest.ReferenceId,
+		"status",
+		webhookRequest.Status,
+		"failure_code",
+		webhookRequest.FailureCode,
+	)
 
 	query := `UPDATE orders SET status = ?, failure_code = ? WHERE id = ?`
-	result, err := tx.ExecContext(o.Ctx, query, webhookRequest.Status, webhookRequest.FailureCode, webhookRequest.ReferenceId)
+	result, err := tx.ExecContext(
+		o.Ctx,
+		query,
+		webhookRequest.Status,
+		webhookRequest.FailureCode,
+		webhookRequest.ReferenceId,
+	)
 	if err != nil {
-		slog.Error("Error occurred while updating order status", "err", err, "id", webhookRequest.ReferenceId, "status", webhookRequest.Status)
+		slog.Error(
+			"Error occurred while updating order status",
+			"err",
+			err,
+			"id",
+			webhookRequest.ReferenceId,
+			"status",
+			webhookRequest.Status,
+		)
 		return fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
 	}
 
@@ -587,7 +727,17 @@ func (o *OrderService) handleOrderSucceededWebhook(c *fiber.Ctx) error {
 	query = `SELECT id, product_id, product_name, destination, server_id, service_charge, total_product_amount, total_amount, created_at FROM orders WHERE id = ?`
 	row := tx.QueryRowContext(o.Ctx, query, webhookRequest.ReferenceId)
 	var order Order
-	err = row.Scan(&order.Id, &order.ProductId, &order.ProductName, &order.Destination, &order.ServerId, &order.ServiceCharge, &order.TotalProductAmount, &order.TotalAmount, &order.CreatedAt)
+	err = row.Scan(
+		&order.Id,
+		&order.ProductId,
+		&order.ProductName,
+		&order.Destination,
+		&order.ServerId,
+		&order.ServiceCharge,
+		&order.TotalProductAmount,
+		&order.TotalAmount,
+		&order.CreatedAt,
+	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			slog.Error("Order not found for payment reference ID", "id", webhookRequest.Id)
@@ -613,17 +763,23 @@ func (o *OrderService) handleOrderSucceededWebhook(c *fiber.Ctx) error {
 	}
 	newOrderMsgJson, err := json.Marshal(newOrderMsg)
 
-	err = o.Producer.Write(o.Ctx, "order_succeeded", [2]string{webhookRequest.Id, string(newOrderMsgJson)})
+	err = o.Producer.Write(
+		o.Ctx,
+		"order_succeeded",
+		[2]string{webhookRequest.Id, string(newOrderMsgJson)},
+	)
 	if err != nil {
 		slog.Error("Error occurred while sending order succeeded event", "err", err)
-		return fiber.NewError(fiber.StatusInternalServerError, "Failed to send order succeeded event")
+		return fiber.NewError(
+			fiber.StatusInternalServerError,
+			"Failed to send order succeeded event",
+		)
 	}
 
 	return c.SendStatus(fiber.StatusOK)
 }
 
 func (o *OrderService) handleOrderFailedWebhook(c *fiber.Ctx) error {
-
 	var request GetResponse[XenditPaymentRequest]
 	if err := c.BodyParser(&request); err != nil {
 		slog.Error("Error occurred while parsing webhook request", "err", err)
@@ -645,7 +801,13 @@ func (o *OrderService) handleOrderFailedWebhook(c *fiber.Ctx) error {
 	defer shared.CommitOrRollback(tx, nil)
 
 	query := `UPDATE orders SET status = ?, failure_code = ? WHERE id = ?`
-	result, err := tx.ExecContext(o.Ctx, query, webhookRequest.Status, webhookRequest.FailureCode, webhookRequest.ReferenceId)
+	result, err := tx.ExecContext(
+		o.Ctx,
+		query,
+		webhookRequest.Status,
+		webhookRequest.FailureCode,
+		webhookRequest.ReferenceId,
+	)
 	if err != nil {
 		slog.Error("Error occurred while updating order status", "err", err)
 		return fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
@@ -659,7 +821,17 @@ func (o *OrderService) handleOrderFailedWebhook(c *fiber.Ctx) error {
 	query = `SELECT id, product_id, product_name, destination, server_id, service_charge, total_product_amount, total_amount, created_at FROM orders WHERE id = ?`
 	row := tx.QueryRowContext(o.Ctx, query, webhookRequest.ReferenceId)
 	var order Order
-	err = row.Scan(&order.Id, &order.ProductId, &order.ProductName, &order.Destination, &order.ServerId, &order.ServiceCharge, &order.TotalProductAmount, &order.TotalAmount, &order.CreatedAt)
+	err = row.Scan(
+		&order.Id,
+		&order.ProductId,
+		&order.ProductName,
+		&order.Destination,
+		&order.ServerId,
+		&order.ServiceCharge,
+		&order.TotalProductAmount,
+		&order.TotalAmount,
+		&order.CreatedAt,
+	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			slog.Error("Order not found for payment reference ID", "id", webhookRequest.Id)
@@ -686,7 +858,11 @@ func (o *OrderService) handleOrderFailedWebhook(c *fiber.Ctx) error {
 	}
 	newOrderMsgJson, err := json.Marshal(newOrderMsg)
 
-	err = o.Producer.Write(o.Ctx, "order_failed", [2]string{webhookRequest.Id, string(newOrderMsgJson)})
+	err = o.Producer.Write(
+		o.Ctx,
+		"order_failed",
+		[2]string{webhookRequest.Id, string(newOrderMsgJson)},
+	)
 	if err != nil {
 		slog.Error("Error occurred while sending order failed event", "err", err)
 		return fiber.NewError(fiber.StatusInternalServerError, "Failed to send order failed event")
@@ -696,7 +872,6 @@ func (o *OrderService) handleOrderFailedWebhook(c *fiber.Ctx) error {
 }
 
 func (o *OrderService) handleSimulatePayment(c *fiber.Ctx) error {
-
 	orderId := c.Params("id")
 	if orderId == "" {
 		return fiber.NewError(fiber.StatusBadRequest, "Order ID is required")
@@ -720,13 +895,25 @@ func (o *OrderService) handleSimulatePayment(c *fiber.Ctx) error {
 	row := tx.QueryRowContext(o.Ctx, query, orderId)
 
 	var order Order
-	err = row.Scan(&order.Id, &order.PaymentReferenceId, &order.BuyerId, &order.BuyerEmail, &order.BuyerPhone,
-		&order.ProductId, &order.ProductName, &order.ChannelCode, &order.Destination,
-		&order.ServerId, &order.TotalProductAmount,
-		&order.ServiceCharge, &order.TotalAmount,
-		&order.Status, &order.FailureCode,
-		&order.CreatedAt, &order.UpdatedAt)
-
+	err = row.Scan(
+		&order.Id,
+		&order.PaymentReferenceId,
+		&order.BuyerId,
+		&order.BuyerEmail,
+		&order.BuyerPhone,
+		&order.ProductId,
+		&order.ProductName,
+		&order.ChannelCode,
+		&order.Destination,
+		&order.ServerId,
+		&order.TotalProductAmount,
+		&order.ServiceCharge,
+		&order.TotalAmount,
+		&order.Status,
+		&order.FailureCode,
+		&order.CreatedAt,
+		&order.UpdatedAt,
+	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return fiber.NewError(fiber.StatusNotFound, "Order not found")
@@ -745,17 +932,31 @@ func (o *OrderService) handleSimulatePayment(c *fiber.Ctx) error {
 		paymentServiceHost := os.Getenv("PAYMENT_SERVICE_HOST")
 		paymentServicePort := os.Getenv("PAYMENT_SERVICE_PORT")
 		url := fmt.Sprintf("/payments/%s", order.PaymentReferenceId)
-		paymentServiceResponse, err := shared.CallService(paymentServiceHost, paymentServicePort, url, fiber.MethodGet, nil)
+		paymentServiceResponse, err := shared.CallService(
+			paymentServiceHost,
+			paymentServicePort,
+			url,
+			fiber.MethodGet,
+			nil,
+		)
 
 		if err != nil || len(paymentServiceResponse.Errs) > 0 {
-			slog.Error("Error occurred while calling payment service", "errs", paymentServiceResponse.Errs)
+			slog.Error(
+				"Error occurred while calling payment service",
+				"errs",
+				paymentServiceResponse.Errs,
+			)
 			slog.Error("Error occurred while calling payment service", "err", err)
 			paymentServiceErrChan <- fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
 			return
 		}
 
 		if paymentServiceResponse.StatusCode != fiber.StatusOK {
-			slog.Error("payment service returned non-200 status code", "code", paymentServiceResponse.StatusCode)
+			slog.Error(
+				"payment service returned non-200 status code",
+				"code",
+				paymentServiceResponse.StatusCode,
+			)
 			paymentServiceErrChan <- fiber.NewError(paymentServiceResponse.StatusCode, string(paymentServiceResponse.Body))
 			return
 		}
@@ -828,7 +1029,10 @@ func handleEwalletPaymentSimulation(urlAction string) error {
 		return fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
 	}
 
-	urlPayment := fmt.Sprintf("https://ewallet-mock-connector.xendit.co/v1/ewallet_connector/payment_callbacks?token=%s", paymentToken)
+	urlPayment := fmt.Sprintf(
+		"https://ewallet-mock-connector.xendit.co/v1/ewallet_connector/payment_callbacks?token=%s",
+		paymentToken,
+	)
 	agent := fiber.Post(urlPayment).Timeout(15 * time.Second)
 
 	statusCode, body, errs := agent.Bytes()
@@ -851,7 +1055,6 @@ func handleEwalletPaymentSimulation(urlAction string) error {
 
 	if xenditSimulationResp.Status == "SUCCEEDED" {
 		return nil
-
 	}
 
 	return fiber.NewError(fiber.StatusExpectationFailed, "Payment failed")
