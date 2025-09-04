@@ -179,7 +179,7 @@ func (p *PaymentService) GetPayment(c *fiber.Ctx) error {
 		xenditApiKey := os.Getenv("XENDIT_API_KEY") + ":"
 		xenditApiKeyBase64 := base64.StdEncoding.EncodeToString([]byte(xenditApiKey))
 		xenditHost := os.Getenv("XENDIT_API_URL")
-		paymentReqUrl := fmt.Sprintf("%s/payment_requests/%s", xenditHost, paymentId)
+		paymentReqUrl := fmt.Sprintf("%s/v3/payment_requests/%s", xenditHost, paymentId)
 
 		agent := fiber.Get(paymentReqUrl).Timeout(15*time.Second).
 			Add("Authorization", fmt.Sprintf("Basic %s", xenditApiKeyBase64)).
