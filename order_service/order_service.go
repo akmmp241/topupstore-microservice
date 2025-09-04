@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -1061,23 +1062,32 @@ func handleEwalletPaymentSimulation(urlAction string) error {
 }
 
 func handleOthersPaymentSimulation(prId string, amount int) error {
+	xenditApiKey := os.Getenv("XENDIT_API_KEY") + ":"
+	xenditApiKeyBase64 := base64.StdEncoding.EncodeToString([]byte(xenditApiKey))
 	xenditBaseUrl := os.Getenv("XENDIT_API_URL")
 	paymentSimulationUrl := fmt.Sprintf("%s/v3/payment_requests/%s/simulate", xenditBaseUrl, prId)
 
 	agent := fiber.Post(paymentSimulationUrl).Timeout(15*time.Second).
+		Add("Authorization", fmt.Sprintf("Basic %s", xenditApiKeyBase64)).
 		Add("api-version", "2024-11-11").
 		JSON(fiber.Map{
 			"amount": amount,
 		})
 
-	statusCode, _, errs := agent.Bytes()
+	statusCode, respByte, errs := agent.Bytes()
 	if len(errs) > 0 {
-		slog.Error("Error occurred while calling xendit payment simulation api", "err", errs)
+		slog.Error(
+			"Error occurred while calling xendit payment simulation api",
+			"err",
+			errs,
+			"resp",
+			string(respByte),
+		)
 		return fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
 	}
 
 	if statusCode != fiber.StatusOK {
-		slog.Error("failed to simulate payment", "code", statusCode)
+		slog.Error("failed to simulate payment", "code", statusCode, "resp", string(respByte))
 		return fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
 	}
 
