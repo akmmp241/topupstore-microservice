@@ -95,6 +95,7 @@ services:
       dockerfile: order_service/Dockerfile
     restart: always
     environment:
+      APP_ENV: ${APP_ENV}
       DB_NAME: ${MYSQL_DATABASE}
       DB_USER: ${MYSQL_USER}
       DB_PASSWORD: ${MYSQL_PASSWORD}
@@ -109,6 +110,8 @@ services:
       PAYMENT_SERVICE_HOST: ${PAYMENT_SERVICE_HOST}
       PAYMENT_SERVICE_PORT: ${PAYMENT_SERVICE_PORT}
       SERVICE_JWT_SECRET_KEY: ${SERVICE_JWT_SECRET_KEY}
+      XENDIT_CALLBACK_TOKEN_HEADER: ${XENDIT_CALLBACK_TOKEN_HEADER}
+      XENDIT_CALLBACK_TOKEN: ${XENDIT_CALLBACK_TOKEN_HEADER}
     networks:
       - akmalstore_net
     env_file:
