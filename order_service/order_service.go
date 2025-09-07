@@ -923,10 +923,10 @@ func (o *OrderService) handleSimulatePayment(c *fiber.Ctx) error {
 		return err
 	}
 
+	// Get payment request data
 	paymentServiceErrChan := make(chan error, 1)
 	getPaymentByIdResponse := make(chan *GetPaymentByIdResponse, 1)
 	defer close(getPaymentByIdResponse)
-
 	go func() {
 		defer close(paymentServiceErrChan)
 
@@ -996,6 +996,7 @@ func (o *OrderService) handleSimulatePayment(c *fiber.Ctx) error {
 		})
 	}
 
+	// Determine the payment request type. There are "redirect" and "http call"
 	if paymentResponse.Actions[0].Type == "REDIRECT_CUSTOMER" {
 		err := handleEwalletPaymentSimulation(paymentResponse.Actions[0].Value)
 		if err != nil {
@@ -1058,7 +1059,7 @@ func handleEwalletPaymentSimulation(urlAction string) error {
 		return nil
 	}
 
-	return fiber.NewError(fiber.StatusExpectationFailed, "Payment failed")
+	return fiber.NewError(fiber.StatusExpectationFailed, "Payment failed. Please check callback for failure reason.")
 }
 
 func handleOthersPaymentSimulation(prId string, amount int) error {
