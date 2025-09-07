@@ -40,10 +40,10 @@ func NewOrderService(
 func (o *OrderService) RegisterRoutes(app fiber.Router) {
 	app.Get("/orders", o.handleGetOrders)
 	app.Get("/orders/:id", o.handleGetOrderById)
-	app.Post("/orders/:id/simulate", o.handleSimulatePayment)
 	app.Post("/orders", o.handleCreateOrders)
 	app.Post("/webhook/orders/succeeded", o.handleOrderSucceededWebhook)
 	app.Post("/webhook/orders/failed", o.handleOrderFailedWebhook)
+	app.Use(shared.DevOnlyMiddleware).Post("/orders/:id/simulate", o.handleSimulatePayment)
 }
 
 func (o *OrderService) handleGetOrders(c *fiber.Ctx) error {
