@@ -10,7 +10,7 @@ import (
 func DevOnlyMiddleware(ctx *fiber.Ctx) error {
 	if isDev := os.Getenv("APP_ENV") != "production"; !isDev {
 		slog.Error("Trying request to dev endpoint in production")
-		return fiber.NewError(fiber.StatusServiceUnavailable, "dev endpoint is unavailable")
+		return fiber.NewError(fiber.StatusForbidden, "dev endpoint is unavailable")
 	}
 
 	return ctx.Next()

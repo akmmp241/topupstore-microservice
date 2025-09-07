@@ -8,6 +8,8 @@ import (
 )
 
 func WebhookTokenMiddleware(c *fiber.Ctx) error {
+	slog.Info("request header", "header", c.GetReqHeaders())
+
 	callbackHeader := os.Getenv("XENDIT_CALLBACK_TOKEN_HEADER")
 	if callbackHeader == "" {
 		slog.Error("Missing configuration: xendit callback token header")
@@ -20,7 +22,11 @@ func WebhookTokenMiddleware(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
 	}
 
-	if token := c.Get(callbackHeader); token != callbackToken {
+	token := c.Get(callbackHeader)
+
+	slog.Info("request header", "token", token, "callback token", callbackToken)
+
+	if token != callbackToken {
 		slog.Error("Callback Token Mismatch")
 		return fiber.NewError(fiber.StatusUnauthorized, "Invalid Token")
 	}
