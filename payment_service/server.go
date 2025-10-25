@@ -1,12 +1,13 @@
 package main
 
 import (
+	"log/slog"
+	"os"
+
 	"github.com/akmmp241/topupstore-microservice/shared"
 	"github.com/go-playground/validator/v10"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/gofiber/fiber/v2"
-	"log/slog"
-	"os"
 )
 
 type AppServer struct {
@@ -14,7 +15,6 @@ type AppServer struct {
 }
 
 func NewAppServer() *AppServer {
-	db := shared.GetConnection()
 	server := fiber.New(fiber.Config{
 		ErrorHandler: shared.ErrorHandler,
 	})
@@ -22,7 +22,7 @@ func NewAppServer() *AppServer {
 
 	api := server.Group("/api")
 
-	paymentService := NewPaymentService(db, validate)
+	paymentService := NewPaymentService(validate)
 	paymentService.RegisterRoutes(api)
 
 	return &AppServer{

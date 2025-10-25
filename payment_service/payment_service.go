@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -19,13 +18,12 @@ import (
 )
 
 type PaymentService struct {
-	DB        *sql.DB
 	Validator *validator.Validate
 	Ctx       context.Context
 }
 
-func NewPaymentService(DB *sql.DB, validator *validator.Validate) *PaymentService {
-	return &PaymentService{DB: DB, Validator: validator, Ctx: context.Background()}
+func NewPaymentService(validator *validator.Validate) *PaymentService {
+	return &PaymentService{Validator: validator, Ctx: context.Background()}
 }
 
 func (p *PaymentService) RegisterRoutes(app fiber.Router) {
