@@ -1,0 +1,70 @@
+syntax = "proto3";
+
+package user.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/akmmp241/topupstore-microservice/user-proto/v1;upb";
+
+service UserService {
+  rpc CreateUser(CreateUserReq) returns (CreateUserRes);
+
+  rpc GetUserById(GetUserByIdReq) returns (GetUserRes);
+  rpc GetUserByEmail(GetUserByEmailReq) returns (GetUserRes);
+
+  rpc ResetPasswordByEmail(ResetPasswordByEmailReq) returns (ResetPasswordRes);
+
+  rpc VerifyEmail(VerifyEmailReq) returns (VerifyEmailRes);
+}
+
+message User {
+  int32 id = 1;
+  string name = 2;
+  string email = 3;
+  string phone_number = 4;
+  string password = 5;
+  optional google.protobuf.Timestamp email_verified_at = 6;
+  google.protobuf.Timestamp created_at = 7;
+  google.protobuf.Timestamp updated_at = 8;
+}
+
+message CreateUserReq {
+  string name = 1;
+  string email = 2;
+  string password = 3;  // only in request
+  string phone_number = 4;
+  string email_verification_token = 5;
+}
+
+message CreateUserRes {
+  string msg = 1;
+}
+
+message GetUserByIdReq {
+  string id = 1;
+}
+
+message GetUserByEmailReq {
+  string email = 2;
+}
+
+message GetUserRes {
+  User user = 1;
+}
+
+message ResetPasswordRes {
+  string msg = 1;
+}
+
+message ResetPasswordByEmailReq {
+  string email = 1;
+  string password = 2;
+}
+
+message VerifyEmailReq {
+  string email_verification_token = 1;
+}
+
+message VerifyEmailRes {
+  string msg = 1;
+}
