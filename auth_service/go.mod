@@ -1,14 +1,15 @@
 module github.com/akmmp241/topupstore-microservice/auth-service
 
-go 1.23.4
+go 1.25.1
 
 require (
 	github.com/akmmp241/topupstore-microservice/shared v1.0.0
+	github.com/akmmp241/topupstore-microservice/user-proto v1.0.0
 	github.com/go-playground/validator/v10 v10.26.0
 	github.com/gofiber/fiber/v2 v2.52.6
 	github.com/google/uuid v1.6.0
 	github.com/segmentio/kafka-go v0.4.47
-	golang.org/x/crypto v0.37.0
+	golang.org/x/crypto v0.40.0
 )
 
 require (
@@ -31,9 +32,12 @@ require (
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/fasthttp v1.61.0 // indirect
-	golang.org/x/net v0.39.0 // indirect
-	golang.org/x/sys v0.32.0 // indirect
-	golang.org/x/text v0.24.0 // indirect
+	golang.org/x/net v0.42.0 // indirect
+	golang.org/x/sys v0.34.0 // indirect
+	golang.org/x/text v0.27.0 // indirect
 )
 
-replace github.com/akmmp241/topupstore-microservice/shared => ../shared
+replace (
+	github.com/akmmp241/topupstore-microservice/shared => ../shared
+	github.com/akmmp241/topupstore-microservice/user-proto => ../user_proto
+)
