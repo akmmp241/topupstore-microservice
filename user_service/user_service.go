@@ -223,11 +223,11 @@ func (s *UserService) handleVerifyEmail(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "Invalid token")
 	}
 
-	query := "SELECT id, name, email, password, phone_number, email_verification_token, email_verified_at, created_at, updated_at FROM users WHERE email_verification_token = ?"
+	query := "SELECT id, name, email, password, phone_number, email_verification_token, email_verified_at, created_at, updated_at FROM users WHERE email_verification_token = ? AND email_verified_at IS NULL"
 
 	rows, err := s.DB.QueryContext(s.Ctx, query, token)
 	if err != nil {
-		slog.Debug("Error occurred while querying user", "err", err)
+		slog.Error("Error occurred while querying user", "err", err)
 		return err
 	}
 	defer rows.Close()
@@ -240,7 +240,7 @@ func (s *UserService) handleVerifyEmail(c *fiber.Ctx) error {
 	var emailVerifiedAt sql.NullTime
 	err = rows.Scan(&user.Id, &user.Name, &user.Email, &user.Password, &user.PhoneNumber, &user.EmailVerificationToken, &emailVerifiedAt, &user.CreatedAt, &user.UpdatedAt)
 	if err != nil {
-		slog.Debug("Error occurred while scanning user", "err", err)
+		slog.Error("Error occurred while scanning user", "err", err)
 		return err
 	}
 
@@ -248,18 +248,13 @@ func (s *UserService) handleVerifyEmail(c *fiber.Ctx) error {
 		user.EmailVerifiedAt = emailVerifiedAt.Time
 	}
 
-	if user.EmailVerificationToken == token {
-		// Update the email verification token and set email verified at
-		user.EmailVerificationToken = ""
-		user.EmailVerifiedAt = time.Now()
+	// Update the email verification token and set email verified at
+	user.EmailVerifiedAt = time.Now()
 
-		_, err = s.DB.ExecContext(s.Ctx, "UPDATE users SET email_verification_token = ?, email_verified_at = ? WHERE id = ?", user.EmailVerificationToken, user.EmailVerifiedAt, user.Id)
-		if err != nil {
-			slog.Debug("Error occurred while updating user", "err", err)
-			return err
-		}
-	} else {
-		return fiber.NewError(fiber.StatusBadRequest, "Invalid token")
+	_, err = s.DB.ExecContext(s.Ctx, "UPDATE users SET email_verification_token = ?, email_verified_at = ? WHERE id = ?", nil, user.EmailVerifiedAt, user.Id)
+	if err != nil {
+		slog.Error("Error occurred while updating user", "err", err)
+		return err
 	}
 
 	return c.JSON(fiber.Map{
