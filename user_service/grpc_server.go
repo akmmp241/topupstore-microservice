@@ -67,7 +67,7 @@ func (s *GrpcServer) CreateUser(ctx context.Context, req *upb.CreateUserReq) (*u
 	}
 	defer shared.CommitOrRollback(tx, err)
 
-	result, err := tx.ExecContext(ctx, "INSERT INTO users (id, name, email, password,phone_number, email_verification_token) VALUES (NULL, ?, ?, ?, ?, ?)",
+	result, err := tx.ExecContext(ctx, "INSERT INTO users (id, name, email, password, phone_number, email_verification_token) VALUES (NULL, ?, ?, ?, ?, ?)",
 		req.Name, req.Email, string(password), req.PhoneNumber, req.EmailVerificationToken)
 
 	if err != nil {
