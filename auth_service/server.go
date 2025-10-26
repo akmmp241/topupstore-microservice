@@ -1,11 +1,13 @@
 package main
 
 import (
-	"github.com/akmmp241/topupstore-microservice/shared"
-	"github.com/go-playground/validator/v10"
-	"github.com/gofiber/fiber/v2"
 	"log/slog"
 	"os"
+
+	"github.com/akmmp241/topupstore-microservice/shared"
+	upb "github.com/akmmp241/topupstore-microservice/user-proto/v1"
+	"github.com/go-playground/validator/v10"
+	"github.com/gofiber/fiber/v2"
 )
 
 type AppServer struct {
@@ -23,7 +25,14 @@ func NewAppServer(producer *KafkaProducer) *AppServer {
 
 	redisClient := shared.NewRedis()
 
-	authService := NewAuthService(producer, validate, redisClient)
+	userServiceGrpcHost := os.Getenv("USER_SERVICE_GRPC_HOST")
+	userServiceGrpcPort := os.Getenv("USER_SERVICE_GRPC_PORT")
+	target := userServiceGrpcHost + ":" + userServiceGrpcPort
+	conn := shared.NewGrpcClientConn(target)
+
+	userServiceGrpc := upb.NewUserServiceClient(conn)
+
+	authService := NewAuthService(producer, validate, redisClient, &userServiceGrpc)
 	authService.RegisterRoutes(app)
 
 	return &AppServer{
