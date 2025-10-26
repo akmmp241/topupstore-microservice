@@ -18,8 +18,10 @@ COPY user_service/go.mod user_service/go.sum ./
 # Copy the source code and build the app
 COPY user_service/ .
 COPY shared/ /build/shared/
+COPY user_proto/ /build/user_proto/
 
 RUN go mod edit -replace=github.com/akmmp241/topupstore-microservice/shared=/build/shared
+RUN go mod edit -replace=github.com/akmmp241/topupstore-microservice/user-proto=/build/user_proto
 
 RUN go mod download
 RUN go build -o /out/build .

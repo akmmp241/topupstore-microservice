@@ -10,24 +10,29 @@ import (
 	"time"
 
 	"github.com/akmmp241/topupstore-microservice/shared"
+	upb "github.com/akmmp241/topupstore-microservice/user-proto/v1"
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 	"golang.org/x/crypto/bcrypt"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type AuthService struct {
-	Producer    *KafkaProducer
-	Validator   *validator.Validate
-	RedisClient *redis.Client
+	Producer          *KafkaProducer
+	Validator         *validator.Validate
+	RedisClient       *redis.Client
+	UserServiceClient *upb.UserServiceClient
 }
 
-func NewAuthService(p *KafkaProducer, v *validator.Validate, r *redis.Client) *AuthService {
+func NewAuthService(p *KafkaProducer, v *validator.Validate, r *redis.Client, u *upb.UserServiceClient) *AuthService {
 	return &AuthService{
-		Producer:    p,
-		Validator:   v,
-		RedisClient: r,
+		Producer:          p,
+		Validator:         v,
+		RedisClient:       r,
+		UserServiceClient: u,
 	}
 }
 
@@ -55,19 +60,24 @@ func (s *AuthService) handleRegister(c *fiber.Ctx) error {
 
 	registerRequest.EmailVerificationToken = uuid.NewString()
 
-	resp, err := CallUserService("/users", fiber.MethodPost, registerRequest)
-	if err != nil || len(resp.Errs) > 0 {
-		slog.Error("Error occurred while calling user service", "errs", resp.Errs)
-		slog.Error("Error occurred while calling user service", "err", err)
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"message": "Internal Server Error",
-			"errors":  nil,
-		})
+	createUserReq := upb.CreateUserReq{
+		Name:                   registerRequest.Name,
+		Email:                  registerRequest.Email,
+		Password:               registerRequest.Password,
+		PhoneNumber:            registerRequest.PhoneNumber,
+		EmailVerificationToken: registerRequest.EmailVerificationToken,
 	}
 
-	if resp.StatusCode != fiber.StatusCreated {
-		slog.Error("User service returned non-200 status code", "code", resp.StatusCode)
-		return fiber.NewError(resp.StatusCode, string(resp.Body))
+	_, err = (*s.UserServiceClient).CreateUser(c.Context(), &createUserReq)
+	if err != nil {
+		st, ok := status.FromError(err)
+		if ok && st.Code() == codes.AlreadyExists {
+			slog.Error("User already exists", "err", err)
+			return fiber.NewError(fiber.StatusConflict, st.Message())
+		}
+
+		slog.Error("Error occurred while calling user service create user", "err", err)
+		return err
 	}
 
 	newRegistrationMsg := &NewRegistrationMessage{
@@ -108,30 +118,24 @@ func (s *AuthService) Login(c *fiber.Ctx) error {
 		return shared.NewFailedValidationError(*loginRequest, err.(validator.ValidationErrors))
 	}
 
-	url := fmt.Sprintf("/users?email=%s", loginRequest.Email)
-
-	resp, err := CallUserService(url, fiber.MethodGet, nil)
-	if err != nil || len(resp.Errs) > 0 {
-		slog.Error("Error occurred while calling user service", "errs", resp.Errs)
-		slog.Error("Error occurred while calling user service", "err", err)
-		return fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
+	getUserByEmailReq := upb.GetUserByEmailReq{
+		Email: loginRequest.Email,
 	}
 
-	if resp.StatusCode != fiber.StatusOK {
-		slog.Error("User service returned non-200 status code", "code", resp.StatusCode)
-		return fiber.NewError(resp.StatusCode, string(resp.Body))
-	}
-
-	getUserResponse := &GetUserResponse{}
-	err = json.Unmarshal(resp.Body, getUserResponse)
+	getUserRes, err := (*s.UserServiceClient).GetUserByEmail(c.Context(), &getUserByEmailReq)
 	if err != nil {
-		slog.Error("Error occurred while unmarshalling response body", "err", err)
+		st, ok := status.FromError(err)
+		if ok && st.Code() == codes.NotFound {
+			return fiber.NewError(fiber.StatusNotFound, "User not found")
+		}
+
+		slog.Error("Error occurred while calling user service get user", "err", err)
 		return err
 	}
-	userResponse := getUserResponse.Data
+	user := getUserRes.GetUser()
 
 	err = bcrypt.CompareHashAndPassword(
-		[]byte(userResponse.Password),
+		[]byte(user.GetPassword()),
 		[]byte(loginRequest.Password),
 	)
 	if err != nil {
@@ -141,7 +145,7 @@ func (s *AuthService) Login(c *fiber.Ctx) error {
 
 	// Generate JWT token
 	expiry := time.Now().Add(time.Hour * 24)
-	userId := strconv.Itoa(userResponse.Id)
+	userId := strconv.Itoa(int(user.GetId()))
 	accessToken, err := shared.GenerateJWTForUser(userId, expiry)
 	if err != nil {
 		slog.Error("Error occurred while generating JWT token", "err", err)
@@ -149,8 +153,8 @@ func (s *AuthService) Login(c *fiber.Ctx) error {
 	}
 
 	newLoginMsg := &NewLoginMessage{
-		Email:     userResponse.Email,
-		Name:      userResponse.Name,
+		Email:     user.GetEmail(),
+		Name:      user.GetName(),
 		LoginTime: time.Now(),
 		IpAddress: c.IP(),
 		Device:    c.Get("User-Agent"),
@@ -177,18 +181,20 @@ func (s *AuthService) handleVerifyEmail(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusBadRequest, "Invalid token")
 	}
 
-	url := fmt.Sprintf("/users/verify/%s", token)
-
-	resp, err := CallUserService(url, fiber.MethodPatch, nil)
-	if err != nil || len(resp.Errs) > 0 {
-		slog.Error("Error occurred while calling user service", "errs", resp.Errs)
-		slog.Error("Error occurred while calling user service", "err", err)
-		return fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
+	verifyEmailReq := &upb.VerifyEmailReq{
+		EmailVerificationToken: token,
 	}
 
-	if resp.StatusCode != fiber.StatusOK {
-		slog.Error("User service returned non-200 status code", "code", resp.StatusCode)
-		return fiber.NewError(resp.StatusCode, string(resp.Body))
+	_, err := (*s.UserServiceClient).VerifyEmail(c.Context(), verifyEmailReq)
+	if err != nil {
+		st, ok := status.FromError(err)
+		if ok && st.Code() == codes.NotFound {
+			slog.Error("User not found", "err", err)
+			return fiber.NewError(fiber.StatusNotFound, st.Message())
+		}
+
+		slog.Error("Error occurred while calling user service verify email", "err", err)
+		return err
 	}
 
 	return c.JSON(fiber.Map{
@@ -214,46 +220,39 @@ func (s *AuthService) handleForgotPassword(c *fiber.Ctx) error {
 		)
 	}
 
-	url := fmt.Sprintf("/users?email=%s", forgotPasswordRequest.Email)
-	resp, err := CallUserService(url, fiber.MethodGet, nil)
-	if err != nil || len(resp.Errs) > 0 {
-		slog.Error("Error occurred while calling user service", "errs", resp.Errs)
-		slog.Error("Error occurred while calling user service", "err", err)
-		return fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
+	getUserByEmailReq := upb.GetUserByEmailReq{
+		Email: forgotPasswordRequest.Email,
 	}
 
-	if resp.StatusCode == fiber.StatusNotFound {
-		return c.JSON(fiber.Map{
-			"message": "Password reset instructions sent to email",
-			"data":    nil,
-			"errors":  nil,
-		})
-	}
-
-	if resp.StatusCode != fiber.StatusOK {
-		return fiber.NewError(fiber.StatusNotFound, "User not found")
-	}
-
-	getUserResponse := &GetUserResponse{}
-	err = json.Unmarshal(resp.Body, getUserResponse)
+	getUserRes, err := (*s.UserServiceClient).GetUserByEmail(c.Context(), &getUserByEmailReq)
 	if err != nil {
-		slog.Error("Error occurred while unmarshalling response body", "err", err)
+		st, ok := status.FromError(err)
+		if ok && st.Code() == codes.NotFound {
+			return c.JSON(fiber.Map{
+				"message": "Password reset instructions sent to email",
+				"data":    nil,
+				"errors":  nil,
+			})
+		}
+
+		slog.Error("Error occurred while calling user service get user", "err", err)
 		return err
 	}
+	user := getUserRes.GetUser()
 
 	resetToken := uuid.NewString()
 	expiration := time.Hour
 
 	key := fmt.Sprintf("forgot-password:%s", resetToken)
-	err = s.RedisClient.SetEx(c.Context(), key, getUserResponse.Data.Email, expiration).Err()
+	err = s.RedisClient.SetEx(c.Context(), key, user.GetEmail(), expiration).Err()
 	if err != nil {
 		slog.Error("Error occurred while setting Redis key", "err", err)
 		return fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
 	}
 
 	forgotPasswordMsg := &ForgotPasswordMessage{
-		Email:     getUserResponse.Data.Email,
-		Name:      getUserResponse.Data.Name,
+		Email:     user.GetEmail(),
+		Name:      user.GetName(),
 		ResetUrl:  fmt.Sprintf("%s/reset-password/%s", os.Getenv("APP_URL"), resetToken),
 		ExpiresAt: time.Now().Add(expiration),
 	}
@@ -305,29 +304,29 @@ func (s *AuthService) handleResetPassword(c *fiber.Ctx) error {
 
 	// checks reset token integrity by accessing redis
 	key := fmt.Sprintf("forgot-password:%s", resetPasswordRequest.ResetToken)
-	val, err := s.RedisClient.Get(c.Context(), key).Result()
+	userEmail, err := s.RedisClient.Get(c.Context(), key).Result()
 
-	if val == "" || err != nil {
+	if userEmail == "" || err != nil {
 		slog.Error("Reset token is not valid", "err", err)
 		return fiber.NewError(fiber.StatusBadRequest, "Reset token is not valid")
 	}
 
-	updateRequest := &UpdateUserRequest{
+	// calls user service
+	resetPasswordByEmailReq := upb.ResetPasswordByEmailReq{
+		Email:    userEmail,
 		Password: resetPasswordRequest.Password,
 	}
 
-	// calls user service
-	url := fmt.Sprintf("/users?email=%s", val)
-	resp, err := CallUserService(url, fiber.MethodPut, updateRequest)
-	if err != nil || len(resp.Errs) > 0 {
-		slog.Error("Error occurred while calling user service", "errs", resp.Errs)
-		slog.Error("Error occurred while calling user service", "err", err)
-		return fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
-	}
+	_, err = (*s.UserServiceClient).ResetPasswordByEmail(c.Context(), &resetPasswordByEmailReq)
+	if err != nil {
+		st, ok := status.FromError(err)
+		if ok && st.Code() == codes.NotFound {
+			slog.Error("User not found", "err", err)
+			return fiber.NewError(fiber.StatusNotFound, st.Message())
+		}
 
-	if resp.StatusCode != fiber.StatusOK {
-		slog.Error("User service returned non-200 status code", "code", resp.StatusCode)
-		return fiber.NewError(resp.StatusCode, "Internal Server Error")
+		slog.Error("Error occurred while calling user service reset password", "err", err)
+		return err
 	}
 
 	// Delete the reset token from Redis
@@ -347,39 +346,27 @@ func (s *AuthService) handleGetUser(c *fiber.Ctx) error {
 		return err
 	}
 
-	url := fmt.Sprintf("/users?id=%s", userId)
-	resp, err := CallUserService(url, fiber.MethodGet, nil)
-	if err != nil || len(resp.Errs) > 0 {
-		slog.Error("Error occurred while calling user service", "errs", resp.Errs)
-		slog.Error("Error occurred while calling user service", "err", err)
-		return fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
-	}
-
-	if resp.StatusCode == fiber.StatusNotFound {
-		slog.Error("User not found", "userId", userId)
-		return fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
-	}
-
-	if resp.StatusCode != fiber.StatusOK {
-		slog.Error("User service returned non-200 status code", "code", resp.StatusCode)
-		return fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
-	}
-
-	getUserResponse := &GetUserResponse{}
-	err = json.Unmarshal(resp.Body, getUserResponse)
+	getUserRes, err := (*s.UserServiceClient).GetUserById(c.Context(), &upb.GetUserByIdReq{
+		Id: userId,
+	})
 	if err != nil {
-		slog.Error("Error occurred while unmarshalling response body", "err", err)
-		return err
+		st, ok := status.FromError(err)
+		if ok && st.Code() == codes.NotFound {
+			slog.Error("User not found", "err", err)
+			return fiber.NewError(fiber.StatusNotFound, st.Message())
+		}
+
+		slog.Error("Error occurred while calling user service get user", "err", err)
 	}
 
 	getResp := &GetResponse{
-		Id:              getUserResponse.Data.Id,
-		Name:            getUserResponse.Data.Name,
-		Email:           getUserResponse.Data.Email,
-		PhoneNumber:     getUserResponse.Data.PhoneNumber,
-		EmailVerifiedAt: getUserResponse.Data.EmailVerifiedAt,
-		CreatedAt:       getUserResponse.Data.CreatedAt,
-		UpdatedAt:       getUserResponse.Data.UpdatedAt,
+		Id:              int(getUserRes.GetUser().Id),
+		Name:            getUserRes.GetUser().Name,
+		Email:           getUserRes.GetUser().Email,
+		PhoneNumber:     getUserRes.GetUser().PhoneNumber,
+		EmailVerifiedAt: getUserRes.GetUser().EmailVerifiedAt.AsTime(),
+		CreatedAt:       getUserRes.GetUser().CreatedAt.AsTime(),
+		UpdatedAt:       getUserRes.GetUser().UpdatedAt.AsTime(),
 	}
 
 	return c.JSON(fiber.Map{
