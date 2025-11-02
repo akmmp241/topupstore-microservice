@@ -1,12 +1,14 @@
 package main
 
 import (
+	"log/slog"
+	"os"
+
+	ppb "github.com/akmmp241/topupstore-microservice/payment-proto/v1"
 	"github.com/akmmp241/topupstore-microservice/shared"
 	"github.com/go-playground/validator/v10"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/gofiber/fiber/v2"
-	"log/slog"
-	"os"
 )
 
 type AppServer struct {
@@ -24,7 +26,14 @@ func NewAppServer() *AppServer {
 
 	producer := NewKafkaProducer()
 
-	orderService := NewOrderService(db, validate, producer)
+	paymentServiceGrpcHost := os.Getenv("PAYMENT_SERVICE_GRPC_HOST")
+	paymentServiceGrpcPort := os.Getenv("PAYMENT_SERVICE_GRPC_PORT")
+	target := paymentServiceGrpcHost + ":" + paymentServiceGrpcPort
+	conn := shared.NewGrpcClientConn(target)
+
+	paymentServiceGrpc := ppb.NewPaymentServiceClient(conn)
+
+	orderService := NewOrderService(db, validate, producer, &paymentServiceGrpc)
 	orderService.RegisterRoutes(api)
 
 	return &AppServer{

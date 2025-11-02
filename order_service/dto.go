@@ -1,6 +1,10 @@
 package main
 
-import "time"
+import (
+	"time"
+
+	ppb "github.com/akmmp241/topupstore-microservice/payment-proto/v1"
+)
 
 type CreateOrderRequest struct {
 	Destination   string `json:"destination"    validate:"required"`
@@ -92,6 +96,33 @@ type GetPaymentByIdResponse struct {
 	FailureCode       string            `json:"failure_code"`
 	Created           time.Time         `json:"created"            validate:"required"`
 	Updated           time.Time         `json:"updated"            validate:"required"`
+}
+
+func (x *GetPaymentByIdResponse) FromGrpc(v *ppb.GetPaymentByIdRes) {
+	var actions []Action
+	for _, action := range v.GetActions() {
+		actions = append(actions, Action{
+			Type:       action.GetType(),
+			Value:      action.GetValue(),
+			Descriptor: action.GetDescriptor_(),
+		})
+	}
+
+	x.PaymentRequestId = v.GetPaymentRequestId()
+	x.RequestAmount = int(v.GetRequestAmount())
+	x.ChannelCode = v.GetChannelCode()
+	x.ChannelProperties = ChannelProperties{
+		DisplayName:      v.GetChannelProperties().GetDisplayName(),
+		ExpiresAt:        v.GetChannelProperties().GetExpiresAt().AsTime(),
+		SuccessReturnUrl: v.GetChannelProperties().GetSuccessReturnUrl(),
+		FailureReturnUrl: v.GetChannelProperties().GetFailureReturnUrl(),
+		CancelReturnUrl:  v.GetChannelProperties().GetCancelReturnUrl(),
+	}
+	x.Actions = actions
+	x.Status = v.GetStatus()
+	x.FailureCode = v.GetFailureCode()
+	x.Created = v.GetCreated().AsTime()
+	x.Updated = v.GetUpdated().AsTime()
 }
 
 type XenditPaymentRequest struct {
