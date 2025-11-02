@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"log/slog"
 	"os"
 
@@ -12,9 +13,10 @@ import (
 
 type AppServer struct {
 	server *fiber.App
+	db     *sql.DB
 }
 
-func NewAppServer() *AppServer {
+func NewAppServer(db *sql.DB) *AppServer {
 	server := fiber.New(fiber.Config{
 		ErrorHandler: shared.ErrorHandler,
 	})
@@ -27,6 +29,7 @@ func NewAppServer() *AppServer {
 
 	return &AppServer{
 		server: server,
+		db:     db,
 	}
 }
 

@@ -1,12 +1,14 @@
 module github.com/akmmp241/topupstore-microservice/payment-service
 
-go 1.24.0
+go 1.25.1
 
 require (
+	github.com/akmmp241/topupstore-microservice/payment-proto v1.0.0
 	github.com/akmmp241/topupstore-microservice/shared v1.0.0
 	github.com/go-playground/validator/v10 v10.26.0
 	github.com/go-sql-driver/mysql v1.9.2
 	github.com/gofiber/fiber/v2 v2.52.8
+	google.golang.org/grpc v1.76.0
 )
 
 require (
@@ -31,10 +33,15 @@ require (
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/fasthttp v1.51.0 // indirect
 	github.com/valyala/tcplisten v1.0.0 // indirect
-	golang.org/x/crypto v0.40.0 // indirect
-	golang.org/x/net v0.42.0 // indirect
-	golang.org/x/sys v0.34.0 // indirect
-	golang.org/x/text v0.27.0 // indirect
+	golang.org/x/crypto v0.43.0 // indirect
+	golang.org/x/net v0.46.0 // indirect
+	golang.org/x/sys v0.37.0 // indirect
+	golang.org/x/text v0.30.0 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20251022142026-3a174f9686a8 // indirect
+	google.golang.org/protobuf v1.36.10 // indirect
 )
 
-replace github.com/akmmp241/topupstore-microservice/shared => ../shared
+replace (
+	github.com/akmmp241/topupstore-microservice/payment-proto => ../payment_proto
+	github.com/akmmp241/topupstore-microservice/shared => ../shared
+)

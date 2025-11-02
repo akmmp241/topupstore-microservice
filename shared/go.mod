@@ -1,6 +1,6 @@
 module github.com/akmmp241/topupstore-microservice/shared
 
-go 1.24.0
+go 1.25.1
 
 require (
 	github.com/go-playground/validator/v10 v10.26.0

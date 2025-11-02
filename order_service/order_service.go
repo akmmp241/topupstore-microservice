@@ -11,30 +11,39 @@ import (
 	"math"
 	urllib "net/url"
 	"os"
-	"sync"
 	"time"
 
+	ppb "github.com/akmmp241/topupstore-microservice/payment-proto/v1"
 	"github.com/akmmp241/topupstore-microservice/shared"
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
-const AppServiceCharge int = 1000
+const (
+	AppServiceCharge            int     = 1000
+	EwalletServiceCharge        float64 = 0.04
+	VirtualAccountServiceCharge int     = 4000
+	QrisServiceCharge           float64 = 0.007
+)
 
 type OrderService struct {
-	DB       *sql.DB
-	Validate *validator.Validate
-	Ctx      context.Context
-	Producer *KafkaProducer
+	DB             *sql.DB
+	Validate       *validator.Validate
+	Ctx            context.Context
+	Producer       *KafkaProducer
+	PaymentService *ppb.PaymentServiceClient
 }
 
 func NewOrderService(
 	DB *sql.DB,
 	validate *validator.Validate,
 	producer *KafkaProducer,
+	PaymentService *ppb.PaymentServiceClient,
 ) *OrderService {
-	return &OrderService{DB: DB, Validate: validate, Ctx: context.Background(), Producer: producer}
+	return &OrderService{DB: DB, Validate: validate, Ctx: context.Background(), Producer: producer, PaymentService: PaymentService}
 }
 
 func (o *OrderService) RegisterRoutes(app fiber.Router) {
@@ -145,86 +154,26 @@ func (o *OrderService) handleGetOrderById(c *fiber.Ctx) error {
 		return err
 	}
 
-	paymentServiceErrChan := make(chan error, 1)
-	getPaymentByIdResponse := make(chan *GetPaymentByIdResponse, 1)
-	defer close(getPaymentByIdResponse)
+	getPaymentIdReq := ppb.GetPaymentByIdReq{
+		PaymentId: order.PaymentReferenceId,
+	}
 
-	go func() {
-		defer close(paymentServiceErrChan)
-
-		paymentServiceHost := os.Getenv("PAYMENT_SERVICE_HOST")
-		paymentServicePort := os.Getenv("PAYMENT_SERVICE_PORT")
-		url := fmt.Sprintf("/payments/%s", order.PaymentReferenceId)
-		paymentServiceResponse, err := shared.CallService(
-			paymentServiceHost,
-			paymentServicePort,
-			url,
-			fiber.MethodGet,
-			nil,
-		)
-
-		if err != nil || len(paymentServiceResponse.Errs) > 0 {
-			slog.Error(
-				"Error occurred while calling payment service",
-				"errs",
-				paymentServiceResponse.Errs,
-			)
-			slog.Error("Error occurred while calling payment service", "err", err)
-			paymentServiceErrChan <- fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
-			return
+	getPaymentByIdRes, err := (*o.PaymentService).GetPaymentById(c.Context(), &getPaymentIdReq)
+	if err != nil {
+		st, ok := status.FromError(err)
+		if ok && st.Code() == codes.NotFound {
+			slog.Info("payment not found", "payment-reference-id", order.PaymentReferenceId)
+			return fiber.NewError(fiber.StatusNotFound, "Order not found")
 		}
 
-		if paymentServiceResponse.StatusCode != fiber.StatusOK {
-			slog.Error(
-				"payment service returned non-200 status code",
-				"code",
-				paymentServiceResponse.StatusCode,
-			)
-			paymentServiceErrChan <- fiber.NewError(paymentServiceResponse.StatusCode, string(paymentServiceResponse.Body))
-			return
-		}
-
-		var paymentResponse GetResponse[GetPaymentByIdResponse]
-		err = json.Unmarshal(paymentServiceResponse.Body, &paymentResponse)
-		if err != nil {
-			slog.Error("Error occurred while unmarshalling payment response", "err", err)
-			paymentServiceErrChan <- fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
-			return
-		}
-
-		getPaymentByIdResponse <- &paymentResponse.Data
-		paymentServiceErrChan <- nil
-	}()
-
-	if err = <-paymentServiceErrChan; err != nil {
-		slog.Error("Error occurred while getting payment details", "error", err)
+		slog.Error("Error occurred while calling payment service", "err", err)
 		return err
 	}
 
-	paymentResponse := <-getPaymentByIdResponse
-
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{
 		"message": "Order retrieved successfully",
-		"data": fiber.Map{
-			"id":                   order.Id,
-			"payment_reference_id": order.PaymentReferenceId,
-			"buyer_id":             order.BuyerId,
-			"buyer_email":          order.BuyerEmail,
-			"buyer_phone":          order.BuyerPhone,
-			"product_id":           order.ProductId,
-			"product_name":         order.ProductName,
-			"destination":          order.Destination,
-			"server_id":            order.ServerId,
-			"total_product_amount": order.TotalProductAmount,
-			"service_charge":       order.ServiceCharge,
-			"total_amount":         order.TotalAmount,
-			"status":               order.Status,
-			"failure_code":         order.FailureCode,
-			"created_at":           order.CreatedAt,
-			"updated_at":           order.UpdatedAt,
-			"payment_details":      paymentResponse,
-		},
-		"errors": nil,
+		"data":    getPaymentByIdRes,
+		"errors":  nil,
 	})
 }
 
@@ -249,25 +198,17 @@ func (o *OrderService) handleCreateOrders(c *fiber.Ctx) error {
 	orderData.ServerId = orderRequest.ServerId
 	orderData.BuyerEmail = orderRequest.BuyerEmail
 
-	var wg sync.WaitGroup
 	userServiceErrChan := make(chan error, 1)
 	productServiceErrChan := make(chan error, 1)
-	paymentMethodErrChan := make(chan error, 1)
-	paymentServiceErrChan := make(chan error, 1)
 	defer close(userServiceErrChan)
 	defer close(productServiceErrChan)
-	defer close(paymentMethodErrChan)
-	defer close(paymentServiceErrChan)
 
 	var user *User
 	var product *Product
-	var paymentMethod *Order
 
 	// get user if logged in
-	wg.Add(1)
 	userChannel := make(chan *User, 1)
 	go func() {
-		defer wg.Done()
 		defer close(userChannel)
 
 		var user User
@@ -278,59 +219,55 @@ func (o *OrderService) handleCreateOrders(c *fiber.Ctx) error {
 			return
 		}
 
-		if userId != "" {
-			userServiceHost := os.Getenv("USER_SERVICE_HOST")
-			userServicePort := os.Getenv("USER_SERVICE_PORT")
-			url := fmt.Sprintf("/users?id=%s", userId)
-			userServiceResponse, err := shared.CallService(
-				userServiceHost,
-				userServicePort,
-				url,
-				fiber.MethodGet,
-				nil,
+		userServiceHost := os.Getenv("USER_SERVICE_HOST")
+		userServicePort := os.Getenv("USER_SERVICE_PORT")
+		url := fmt.Sprintf("/users?id=%s", userId)
+		userServiceResponse, err := shared.CallService(
+			userServiceHost,
+			userServicePort,
+			url,
+			fiber.MethodGet,
+			nil,
+		)
+
+		if err != nil || len(userServiceResponse.Errs) > 0 {
+			slog.Error(
+				"Error occurred while calling user service",
+				"errs",
+				userServiceResponse.Errs,
 			)
-
-			if err != nil || len(userServiceResponse.Errs) > 0 {
-				slog.Error(
-					"Error occurred while calling user service",
-					"errs",
-					userServiceResponse.Errs,
-				)
-				slog.Error("Error occurred while calling user service", "err", err)
-				userChannel <- nil
-				userServiceErrChan <- fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
-				return
-			}
-
-			if userServiceResponse.StatusCode != fiber.StatusOK {
-				slog.Error(
-					"User service returned non-200 status code",
-					"code",
-					userServiceResponse.StatusCode,
-				)
-				userChannel <- nil
-				userServiceErrChan <- fiber.NewError(userServiceResponse.StatusCode, string(userServiceResponse.Body))
-				return
-			}
-
-			err = json.Unmarshal(userServiceResponse.Body, &user)
-			if err != nil {
-				slog.Error("Error occurred while unmarshalling user response", "err", err)
-				userChannel <- nil
-				userServiceErrChan <- fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
-				return
-			}
-
-			userServiceErrChan <- nil
-			userChannel <- &user
+			slog.Error("Error occurred while calling user service", "err", err)
+			userChannel <- nil
+			userServiceErrChan <- fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
+			return
 		}
+
+		if userServiceResponse.StatusCode != fiber.StatusOK {
+			slog.Error(
+				"User service returned non-200 status code",
+				"code",
+				userServiceResponse.StatusCode,
+			)
+			userChannel <- nil
+			userServiceErrChan <- fiber.NewError(userServiceResponse.StatusCode, string(userServiceResponse.Body))
+			return
+		}
+
+		err = json.Unmarshal(userServiceResponse.Body, &user)
+		if err != nil {
+			slog.Error("Error occurred while unmarshalling user response", "err", err)
+			userChannel <- nil
+			userServiceErrChan <- fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
+			return
+		}
+
+		userServiceErrChan <- nil
+		userChannel <- &user
 	}()
 
 	// get data product
-	wg.Add(1)
 	productChannel := make(chan *Product, 1)
 	go func() {
-		defer wg.Done()
 		defer close(productChannel)
 
 		var response GetResponse[Product]
@@ -388,217 +325,82 @@ func (o *OrderService) handleCreateOrders(c *fiber.Ctx) error {
 		productChannel <- &response.Data
 	}()
 
-	// set payment method
-	wg.Add(1)
-	paymentMethodChan := make(chan *Order, 1)
-	go func() {
-		defer wg.Done()
-		defer close(paymentMethodChan)
-
-		// Check if the payment method is valid
-		for _, channel := range EwalletChannelCodes {
-			if orderRequest.PaymentMethod != channel {
-				continue
-			}
-
-			// implementation for creating ewallet payment
-			orderData.ChannelCode = orderRequest.PaymentMethod
-			paymentMethodChan <- &Order{
-				ServiceCharge: 0.04, // 4% service charge for ewallet
-				ChannelCode:   orderRequest.PaymentMethod,
-			}
-		}
-
-		for _, channel := range VirtualAccountChannelCodes {
-			if orderRequest.PaymentMethod != channel {
-				continue
-			}
-
-			// implementation for creating virtual account payment
-			orderData.ChannelCode = orderRequest.PaymentMethod
-			paymentMethodChan <- &Order{
-				ServiceCharge: 4000, // flat service charge for a virtual account
-				ChannelCode:   orderRequest.PaymentMethod,
-			}
-		}
-
-		for _, channel := range QrisChannelCode {
-			if orderRequest.PaymentMethod != channel {
-				continue
-			}
-
-			// implementation for creating qris payment
-			orderData.ChannelCode = orderRequest.PaymentMethod
-			paymentMethodChan <- &Order{
-				ServiceCharge: 0.007, // 0.7% service charge for qris
-				ChannelCode:   orderRequest.PaymentMethod,
-			}
-		}
-
-		if orderData.ChannelCode == "" {
-			slog.Error("Invalid Channel Code")
-			paymentMethodErrChan <- fiber.NewError(fiber.StatusBadRequest, "Invalid channel code")
-			paymentMethodChan <- nil
-			return
-		}
-
-		paymentMethodErrChan <- nil
-	}()
-
-	// call payment service to create payment
-	wg.Add(1)
-	paymentResponseChan := make(chan *CreatePaymentResponse, 1)
-	go func() {
-		defer wg.Done()
-		defer close(paymentResponseChan)
-
-		// wait for product and user data to be fetched
-		user = <-userChannel
-		product = <-productChannel
-		paymentMethod = <-paymentMethodChan
-
-		if product == nil {
-			errTemp := <-productServiceErrChan
-			paymentServiceErrChan <- errTemp
-			productServiceErrChan <- errTemp
-			return
-		}
-
-		if paymentMethod == nil {
-			errTemp := <-paymentMethodErrChan
-			paymentServiceErrChan <- errTemp
-			paymentMethodErrChan <- errTemp
-			return
-		}
-
-		// create payment request
-		var createPaymentRequest CreatePaymentRequest
-		createPaymentRequest.ReferenceId = orderData.Id
-		createPaymentRequest.ChannelCode = paymentMethod.ChannelCode
-
-		// calculate the total amount of service charge, payment method charge and product price
-		// if the service charge is less than 1, it means it's a percentage
-		if paymentMethod.ServiceCharge < 1 {
-			createPaymentRequest.Amount = int(
-				(float64(product.Price)*paymentMethod.ServiceCharge)+float64(product.Price),
-			) + AppServiceCharge
-		} else {
-			createPaymentRequest.Amount = int(float64(product.Price)+paymentMethod.ServiceCharge) + AppServiceCharge
-		}
-
-		createPaymentRequest.BuyerEmail = orderData.BuyerEmail
-		if user != nil {
-			createPaymentRequest.BuyerMobileNumber = user.PhoneNumber
-		}
-
-		var paymentResponse *GetResponse[CreatePaymentResponse]
-
-		paymentServiceHost := os.Getenv("PAYMENT_SERVICE_HOST")
-		paymentServicePort := os.Getenv("PAYMENT_SERVICE_PORT")
-		url := "/payments"
-		paymentServiceResponse, err := shared.CallService(
-			paymentServiceHost,
-			paymentServicePort,
-			url,
-			fiber.MethodPost,
-			&createPaymentRequest,
-		)
-
-		if err != nil || len(paymentServiceResponse.Errs) > 0 {
-			slog.Error(
-				"Error occurred while calling payment service",
-				"errs",
-				paymentServiceResponse.Errs,
-			)
-			slog.Error("Error occurred while calling payment service", "err", err)
-			paymentServiceErrChan <- fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
-			return
-		}
-
-		if paymentServiceResponse.StatusCode != fiber.StatusCreated {
-
-			var errResp GetResponse[interface{}]
-
-			err := json.Unmarshal(paymentServiceResponse.Body, &errResp)
-			if err != nil {
-				slog.Error("Error occurred while calling payment service", "err", err)
-				paymentServiceErrChan <- fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
-				return
-			}
-
-			slog.Error(
-				"payment service returned non-200 status code",
-				"code",
-				paymentServiceResponse.StatusCode,
-				"body",
-				string(paymentServiceResponse.Body),
-			)
-			paymentServiceErrChan <- fiber.NewError(paymentServiceResponse.StatusCode, errResp.Message)
-			return
-		}
-
-		err = json.Unmarshal(paymentServiceResponse.Body, &paymentResponse)
-		if err != nil {
-			slog.Error("Error occurred while unmarshalling payment response", "err", err)
-			paymentServiceErrChan <- fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
-			return
-		}
-
-		paymentServiceErrChan <- nil
-		paymentResponseChan <- &paymentResponse.Data
-	}()
-
-	wg.Wait()
-
+	// wait for user and product service to finish
 	if err = <-userServiceErrChan; err != nil {
 		return err
+	}
+
+	user = <-userChannel
+	if user != nil {
+		orderData.BuyerId = user.Id
 	}
 
 	if err = <-productServiceErrChan; err != nil {
 		return err
 	}
 
-	if err = <-paymentMethodErrChan; err != nil {
-		return err
+	product = <-productChannel
+	orderData.ProductId = product.Id
+	orderData.ProductName = product.Name
+	orderData.TotalProductAmount = product.Price
+
+	// set payment method
+	paymentMethod, err := getPaymentMethodDetails(orderRequest.PaymentMethod, product.Price)
+	if err != nil {
+		slog.Error("Invalid Channel Code", "err", err)
+		return fiber.NewError(fiber.StatusBadRequest, err.Error())
 	}
+
+	orderData.ServiceCharge = paymentMethod.ServiceCharge
+	orderData.TotalAmount = paymentMethod.TotalAmount
+
+	// call create payment
+	paymentServiceErrChan := make(chan error, 1)
+	defer close(paymentServiceErrChan)
+	createPaymentResChan := make(chan *ppb.CreatePaymentRes, 1)
+	go func(p *Product, pm *Order) {
+		defer close(createPaymentResChan)
+
+		// create payment
+		createPaymentReq := ppb.CreatePaymentReq{
+			ReferenceId: orderData.Id,
+			ChannelCode: pm.ChannelCode,
+			Amount:      int32(orderData.TotalAmount),
+			BuyerEmail:  orderData.BuyerEmail,
+		}
+		if user != nil {
+			createPaymentReq.BuyerMobileNumber = user.PhoneNumber
+		}
+
+		createPaymentRes, err := (*o.PaymentService).CreatePayment(c.Context(), &createPaymentReq)
+		if err != nil {
+			st, ok := status.FromError(err)
+			if ok && st.Code() == codes.InvalidArgument {
+				slog.Info("Invalid payment request", "err", err)
+				paymentServiceErrChan <- fiber.NewError(fiber.StatusBadRequest, st.Message())
+				createPaymentResChan <- nil
+				return
+			}
+
+			slog.Error("Error occurred while calling payment service", "err", err)
+			paymentServiceErrChan <- fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
+			createPaymentResChan <- nil
+			return
+		}
+
+		paymentServiceErrChan <- nil
+		createPaymentResChan <- createPaymentRes
+	}(product, paymentMethod)
 
 	if err = <-paymentServiceErrChan; err != nil {
 		return err
 	}
 
-	paymentResponse := <-paymentResponseChan
+	createPaymentRes := <-createPaymentResChan
+	orderData.Status = createPaymentRes.Status
+	orderData.FailureCode = createPaymentRes.FailureCode
+	orderData.PaymentReferenceId = createPaymentRes.XenditPaymentId
 
-	if user != nil {
-		orderData.BuyerId = user.Id
-	}
-
-	orderData.ProductId = product.Id
-	orderData.PaymentReferenceId = paymentResponse.XenditPaymentId
-	orderData.ProductName = product.Name
-	orderData.TotalProductAmount = product.Price
-
-	// calculate the total amount of service charge, payment method charge and product price
-	// if the service charge is less than 1, it means it's a percentage
-	if paymentMethod.ServiceCharge < 1 {
-		orderData.ServiceCharge = (float64(product.Price) * paymentMethod.ServiceCharge) + float64(
-			AppServiceCharge,
-		)
-		orderData.TotalAmount = int(
-			math.Ceil(
-				(float64(product.Price) * paymentMethod.ServiceCharge) + float64(
-					product.Price,
-				) + float64(
-					AppServiceCharge,
-				),
-			),
-		)
-	} else {
-		orderData.ServiceCharge = paymentMethod.ServiceCharge + float64(AppServiceCharge)
-		orderData.TotalAmount = product.Price + int(paymentMethod.ServiceCharge) + AppServiceCharge
-	}
-
-	orderData.Status = paymentResponse.Status
-	orderData.FailureCode = paymentResponse.FailureCode
 	orderData.CreatedAt = time.Now()
 
 	tx, err := o.DB.Begin()
@@ -1096,4 +898,48 @@ func handleOthersPaymentSimulation(prId string, amount int) error {
 	}
 
 	return nil
+}
+
+func getPaymentMethodDetails(channelCode string, productPrice int) (*Order, error) {
+	// Check if the payment method is valid
+	for _, channel := range EwalletChannelCodes {
+		if channelCode == channel {
+			// implementation for creating ewallet payment
+			serviceCharge := (float64(productPrice) * EwalletServiceCharge) + float64(AppServiceCharge)
+			totalAmount := math.Ceil(float64(productPrice) + serviceCharge)
+			return &Order{
+				ChannelCode:   channelCode,
+				TotalAmount:   int(totalAmount),
+				ServiceCharge: serviceCharge,
+			}, nil
+		}
+	}
+
+	for _, channel := range VirtualAccountChannelCodes {
+		if channelCode == channel {
+			// implementation for creating virtual account payment
+			serviceCharge := float64(VirtualAccountServiceCharge) + float64(AppServiceCharge)
+			totalAmount := math.Ceil(float64(productPrice) + serviceCharge)
+			return &Order{
+				ChannelCode:   channelCode,
+				TotalAmount:   int(totalAmount),
+				ServiceCharge: serviceCharge,
+			}, nil
+		}
+	}
+
+	for _, channel := range QrisChannelCode {
+		if channelCode == channel {
+			// implementation for creating qris payment
+			serviceCharge := (float64(productPrice) * QrisServiceCharge) + float64(AppServiceCharge)
+			totalAmount := math.Ceil(float64(productPrice) + serviceCharge)
+			return &Order{
+				ChannelCode:   channelCode,
+				TotalAmount:   int(totalAmount),
+				ServiceCharge: serviceCharge,
+			}, nil
+		}
+	}
+
+	return nil, errors.New("invalid channel code")
 }

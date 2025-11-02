@@ -357,6 +357,7 @@ func (s *AuthService) handleGetUser(c *fiber.Ctx) error {
 		}
 
 		slog.Error("Error occurred while calling user service get user", "err", err)
+		return err
 	}
 
 	getResp := &GetResponse{

@@ -1,0 +1,56 @@
+syntax = "proto3";
+
+package payment.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/akmmp241/topupstore-microservice/payment-proto/v1;ppb";
+
+service PaymentService {
+  rpc CreatePayment(CreatePaymentReq) returns (CreatePaymentRes);
+  rpc GetPaymentById(GetPaymentByIdReq) returns (GetPaymentByIdRes);
+}
+
+message CreatePaymentReq {
+  string reference_id = 1;
+  string channel_code = 2;
+  int32 amount = 3;
+  string buyer_email = 4;
+  string buyer_mobile_number = 5;
+}
+
+message CreatePaymentRes {
+  string xendit_payment_id = 1;
+  string status = 2;
+  string failure_code = 3;
+}
+
+message GetPaymentByIdReq {
+  string payment_id = 1;
+}
+
+message Action {
+  string type = 1;
+  string descriptor = 2;
+  string value = 3;
+}
+
+message ChannelProperties {
+  string display_name = 1;
+  google.protobuf.Timestamp expires_at = 2;
+  string success_return_url = 3;
+  string failure_return_url = 4;
+  string cancel_return_url = 5;
+}
+
+message GetPaymentByIdRes {
+  string payment_request_id = 1;
+  int32 request_amount = 2;
+  string channel_code = 3;
+  ChannelProperties channel_properties = 4;
+  repeated Action actions = 5;
+  string status = 6;
+  string failure_code = 7;
+  google.protobuf.Timestamp created = 8;
+  google.protobuf.Timestamp updated = 9;
+}
