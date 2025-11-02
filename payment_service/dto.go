@@ -1,6 +1,11 @@
 package main
 
-import "time"
+import (
+	"time"
+
+	ppb "github.com/akmmp241/topupstore-microservice/payment-proto/v1"
+	"google.golang.org/protobuf/types/known/timestamppb"
+)
 
 type CreatePaymentRequest struct {
 	ReferenceId       string  `json:"reference_id"        validate:"required"`
@@ -33,6 +38,35 @@ type XenditPaymentRequestResponse struct {
 	FailureCode       string            `json:"failure_code"`
 	Created           time.Time         `json:"created"            validate:"required"`
 	Updated           time.Time         `json:"updated"            validate:"required"`
+}
+
+func (x *XenditPaymentRequestResponse) ToGetPaymentByIdGrpcRes() *ppb.GetPaymentByIdRes {
+	var actions []*ppb.Action
+	for _, action := range x.Actions {
+		actions = append(actions, &ppb.Action{
+			Type:        action.Type,
+			Descriptor_: action.Descriptor,
+			Value:       action.Value,
+		})
+	}
+
+	return &ppb.GetPaymentByIdRes{
+		PaymentRequestId: x.PaymentRequestId,
+		RequestAmount:    int32(x.RequestAmount),
+		ChannelCode:      x.ChannelCode,
+		ChannelProperties: &ppb.ChannelProperties{
+			DisplayName:      x.ChannelProperties.DisplayName,
+			ExpiresAt:        timestamppb.New(x.ChannelProperties.ExpiresAt),
+			SuccessReturnUrl: x.ChannelProperties.SuccessReturnUrl,
+			FailureReturnUrl: x.ChannelProperties.FailureReturnUrl,
+			CancelReturnUrl:  x.ChannelProperties.CancelReturnUrl,
+		},
+		Actions:     actions,
+		Status:      x.Status,
+		FailureCode: x.FailureCode,
+		Created:     timestamppb.New(x.Created),
+		Updated:     timestamppb.New(x.Updated),
+	}
 }
 
 type ChannelProperties struct {
