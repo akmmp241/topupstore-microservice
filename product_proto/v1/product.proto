@@ -1,0 +1,61 @@
+syntax = "proto3";
+
+package product.v1;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/akmmp241/topupstore-microservice/product-proto/v1;prpb";
+
+message Category {
+  int32 id = 1;
+  string ref_id = 2;
+  string name = 3;
+  google.protobuf.Timestamp created_at = 4;
+  google.protobuf.Timestamp updated_at = 5;
+}
+
+message Operator {
+  int32 id = 1;
+  string ref_id = 2;
+  int32 category_id = 3;
+  string name = 4;
+  string slug = 5;
+  string image_url = 6;
+  string description = 7;
+  google.protobuf.Timestamp created_at = 8;
+  google.protobuf.Timestamp updated_at = 9;
+}
+
+message ProductType {
+  int32 id = 1;
+  string ref_id = 2;
+  int32 operator_id = 3;
+  string name = 4;
+  string format_form = 5;
+  google.protobuf.Timestamp created_at = 6;
+  google.protobuf.Timestamp updated_at = 7;
+}
+
+message Product {
+  int32 id = 1;
+  string ref_id = 2;
+  int32 product_type_id = 3;
+  string name = 4;
+  int32 price = 5;
+  string image_url = 6;
+  string description = 7;
+  google.protobuf.Timestamp created_at = 8;
+  google.protobuf.Timestamp updated_at = 9;
+}
+
+message GetProductByIdReq {
+  int32 product_id = 1;
+}
+
+message GetProductByIdRes {
+  Product product = 1;
+}
+
+service ProductService {
+  rpc GetProductById(GetProductByIdReq) returns (GetProductByIdRes);
+}
