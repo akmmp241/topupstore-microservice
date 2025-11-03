@@ -7,6 +7,7 @@ import (
 	ppb "github.com/akmmp241/topupstore-microservice/payment-proto/v1"
 	prpb "github.com/akmmp241/topupstore-microservice/product-proto/v1"
 	"github.com/akmmp241/topupstore-microservice/shared"
+	upb "github.com/akmmp241/topupstore-microservice/user-proto/v1"
 	"github.com/go-playground/validator/v10"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/gofiber/fiber/v2"
@@ -41,7 +42,14 @@ func NewAppServer() *AppServer {
 
 	productServiceGrpc := prpb.NewProductServiceClient(productConn)
 
-	orderService := NewOrderService(db, validate, producer, &paymentServiceGrpc, &productServiceGrpc)
+	userServiceGrpcHost := os.Getenv("USER_SERVICE_GRPC_HOST")
+	userServiceGrpcPort := os.Getenv("USER_SERVICE_GRPC_PORT")
+	userTarget := userServiceGrpcHost + ":" + userServiceGrpcPort
+	userConn := shared.NewGrpcClientConn(userTarget)
+
+	userServiceGrpc := upb.NewUserServiceClient(userConn)
+
+	orderService := NewOrderService(db, validate, producer, &paymentServiceGrpc, &productServiceGrpc, &userServiceGrpc)
 	orderService.RegisterRoutes(api)
 
 	return &AppServer{

@@ -16,6 +16,7 @@ import (
 	ppb "github.com/akmmp241/topupstore-microservice/payment-proto/v1"
 	prpb "github.com/akmmp241/topupstore-microservice/product-proto/v1"
 	"github.com/akmmp241/topupstore-microservice/shared"
+	upb "github.com/akmmp241/topupstore-microservice/user-proto/v1"
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -37,6 +38,7 @@ type OrderService struct {
 	Producer       *KafkaProducer
 	PaymentService *ppb.PaymentServiceClient
 	ProductService *prpb.ProductServiceClient
+	UserService    *upb.UserServiceClient
 }
 
 func NewOrderService(
@@ -45,8 +47,9 @@ func NewOrderService(
 	producer *KafkaProducer,
 	PaymentService *ppb.PaymentServiceClient,
 	ProductService *prpb.ProductServiceClient,
+	UserService *upb.UserServiceClient,
 ) *OrderService {
-	return &OrderService{DB: DB, Validate: validate, Ctx: context.Background(), Producer: producer, PaymentService: PaymentService, ProductService: ProductService}
+	return &OrderService{DB: DB, Validate: validate, Ctx: context.Background(), Producer: producer, PaymentService: PaymentService, ProductService: ProductService, UserService: UserService}
 }
 
 func (o *OrderService) RegisterRoutes(app fiber.Router) {
@@ -206,66 +209,47 @@ func (o *OrderService) handleCreateOrders(c *fiber.Ctx) error {
 	defer close(userServiceErrChan)
 	defer close(productServiceErrChan)
 
-	var user *User
+	var user *upb.User
 	var product *prpb.Product
 
 	// get user if logged in
-	userChannel := make(chan *User, 1)
+	userChannel := make(chan *upb.User, 1)
 	go func() {
 		defer close(userChannel)
 
-		var user User
-		userId, _ := shared.GetUserIdFromToken(c)
-		if userId == "" {
+		if c.Get("Authorization") == "" {
 			userServiceErrChan <- nil
 			userChannel <- nil
 			return
 		}
 
-		userServiceHost := os.Getenv("USER_SERVICE_HOST")
-		userServicePort := os.Getenv("USER_SERVICE_PORT")
-		url := fmt.Sprintf("/users?id=%s", userId)
-		userServiceResponse, err := shared.CallService(
-			userServiceHost,
-			userServicePort,
-			url,
-			fiber.MethodGet,
-			nil,
-		)
-
-		if err != nil || len(userServiceResponse.Errs) > 0 {
-			slog.Error(
-				"Error occurred while calling user service",
-				"errs",
-				userServiceResponse.Errs,
-			)
-			slog.Error("Error occurred while calling user service", "err", err)
-			userChannel <- nil
-			userServiceErrChan <- fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
-			return
-		}
-
-		if userServiceResponse.StatusCode != fiber.StatusOK {
-			slog.Error(
-				"User service returned non-200 status code",
-				"code",
-				userServiceResponse.StatusCode,
-			)
-			userChannel <- nil
-			userServiceErrChan <- fiber.NewError(userServiceResponse.StatusCode, string(userServiceResponse.Body))
-			return
-		}
-
-		err = json.Unmarshal(userServiceResponse.Body, &user)
+		userId, err := shared.GetUserIdFromToken(c)
 		if err != nil {
-			slog.Error("Error occurred while unmarshalling user response", "err", err)
+			userServiceErrChan <- err
 			userChannel <- nil
-			userServiceErrChan <- fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
+			return
+		}
+
+		getUserByIdReq := upb.GetUserByIdReq{Id: userId}
+
+		getUserByIdRes, err := (*o.UserService).GetUserById(c.Context(), &getUserByIdReq)
+		if err != nil {
+			st, ok := status.FromError(err)
+			if ok && st.Code() == codes.NotFound {
+				slog.Info("product not found", "product-id", orderRequest.ProductId)
+				userServiceErrChan <- fiber.NewError(fiber.StatusNotFound, st.Message())
+				userChannel <- nil
+				return
+			}
+
+			slog.Error("Error occurred while calling product service", "err", err)
+			userServiceErrChan <- err
+			userChannel <- nil
 			return
 		}
 
 		userServiceErrChan <- nil
-		userChannel <- &user
+		userChannel <- getUserByIdRes.GetUser()
 	}()
 
 	// get data product
@@ -304,7 +288,7 @@ func (o *OrderService) handleCreateOrders(c *fiber.Ctx) error {
 
 	user = <-userChannel
 	if user != nil {
-		orderData.BuyerId = user.Id
+		orderData.BuyerId = int(user.Id)
 	}
 
 	if err = <-productServiceErrChan; err != nil {

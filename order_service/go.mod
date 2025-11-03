@@ -6,6 +6,7 @@ require (
 	github.com/akmmp241/topupstore-microservice/payment-proto v1.0.0
 	github.com/akmmp241/topupstore-microservice/product-proto v1.0.0
 	github.com/akmmp241/topupstore-microservice/shared v1.0.0
+	github.com/akmmp241/topupstore-microservice/user-proto v1.0.0
 	github.com/go-playground/validator/v10 v10.26.0
 	github.com/go-sql-driver/mysql v1.9.2
 	github.com/gofiber/fiber/v2 v2.52.8
@@ -45,4 +46,5 @@ replace (
 	github.com/akmmp241/topupstore-microservice/payment-proto => ../payment_proto
 	github.com/akmmp241/topupstore-microservice/product-proto => ../product_proto
 	github.com/akmmp241/topupstore-microservice/shared => ../shared
+	github.com/akmmp241/topupstore-microservice/user-proto => ../user_proto
 )
