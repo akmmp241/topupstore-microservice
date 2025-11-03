@@ -5,7 +5,9 @@ import (
 	"os"
 
 	ppb "github.com/akmmp241/topupstore-microservice/payment-proto/v1"
+	prpb "github.com/akmmp241/topupstore-microservice/product-proto/v1"
 	"github.com/akmmp241/topupstore-microservice/shared"
+	upb "github.com/akmmp241/topupstore-microservice/user-proto/v1"
 	"github.com/go-playground/validator/v10"
 	_ "github.com/go-sql-driver/mysql"
 	"github.com/gofiber/fiber/v2"
@@ -28,12 +30,26 @@ func NewAppServer() *AppServer {
 
 	paymentServiceGrpcHost := os.Getenv("PAYMENT_SERVICE_GRPC_HOST")
 	paymentServiceGrpcPort := os.Getenv("PAYMENT_SERVICE_GRPC_PORT")
-	target := paymentServiceGrpcHost + ":" + paymentServiceGrpcPort
-	conn := shared.NewGrpcClientConn(target)
+	paymentTarget := paymentServiceGrpcHost + ":" + paymentServiceGrpcPort
+	paymentConn := shared.NewGrpcClientConn(paymentTarget)
 
-	paymentServiceGrpc := ppb.NewPaymentServiceClient(conn)
+	paymentServiceGrpc := ppb.NewPaymentServiceClient(paymentConn)
 
-	orderService := NewOrderService(db, validate, producer, &paymentServiceGrpc)
+	productServiceGrpcHost := os.Getenv("PRODUCT_SERVICE_GRPC_HOST")
+	productServiceGrpcPort := os.Getenv("PRODUCT_SERVICE_GRPC_PORT")
+	productTarget := productServiceGrpcHost + ":" + productServiceGrpcPort
+	productConn := shared.NewGrpcClientConn(productTarget)
+
+	productServiceGrpc := prpb.NewProductServiceClient(productConn)
+
+	userServiceGrpcHost := os.Getenv("USER_SERVICE_GRPC_HOST")
+	userServiceGrpcPort := os.Getenv("USER_SERVICE_GRPC_PORT")
+	userTarget := userServiceGrpcHost + ":" + userServiceGrpcPort
+	userConn := shared.NewGrpcClientConn(userTarget)
+
+	userServiceGrpc := upb.NewUserServiceClient(userConn)
+
+	orderService := NewOrderService(db, validate, producer, &paymentServiceGrpc, &productServiceGrpc, &userServiceGrpc)
 	orderService.RegisterRoutes(api)
 
 	return &AppServer{

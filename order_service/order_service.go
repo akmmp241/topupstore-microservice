@@ -14,7 +14,9 @@ import (
 	"time"
 
 	ppb "github.com/akmmp241/topupstore-microservice/payment-proto/v1"
+	prpb "github.com/akmmp241/topupstore-microservice/product-proto/v1"
 	"github.com/akmmp241/topupstore-microservice/shared"
+	upb "github.com/akmmp241/topupstore-microservice/user-proto/v1"
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -35,6 +37,8 @@ type OrderService struct {
 	Ctx            context.Context
 	Producer       *KafkaProducer
 	PaymentService *ppb.PaymentServiceClient
+	ProductService *prpb.ProductServiceClient
+	UserService    *upb.UserServiceClient
 }
 
 func NewOrderService(
@@ -42,8 +46,10 @@ func NewOrderService(
 	validate *validator.Validate,
 	producer *KafkaProducer,
 	PaymentService *ppb.PaymentServiceClient,
+	ProductService *prpb.ProductServiceClient,
+	UserService *upb.UserServiceClient,
 ) *OrderService {
-	return &OrderService{DB: DB, Validate: validate, Ctx: context.Background(), Producer: producer, PaymentService: PaymentService}
+	return &OrderService{DB: DB, Validate: validate, Ctx: context.Background(), Producer: producer, PaymentService: PaymentService, ProductService: ProductService, UserService: UserService}
 }
 
 func (o *OrderService) RegisterRoutes(app fiber.Router) {
@@ -203,126 +209,76 @@ func (o *OrderService) handleCreateOrders(c *fiber.Ctx) error {
 	defer close(userServiceErrChan)
 	defer close(productServiceErrChan)
 
-	var user *User
-	var product *Product
+	var user *upb.User
+	var product *prpb.Product
 
 	// get user if logged in
-	userChannel := make(chan *User, 1)
+	userChannel := make(chan *upb.User, 1)
 	go func() {
 		defer close(userChannel)
 
-		var user User
-		userId, _ := shared.GetUserIdFromToken(c)
-		if userId == "" {
+		if c.Get("Authorization") == "" {
 			userServiceErrChan <- nil
 			userChannel <- nil
 			return
 		}
 
-		userServiceHost := os.Getenv("USER_SERVICE_HOST")
-		userServicePort := os.Getenv("USER_SERVICE_PORT")
-		url := fmt.Sprintf("/users?id=%s", userId)
-		userServiceResponse, err := shared.CallService(
-			userServiceHost,
-			userServicePort,
-			url,
-			fiber.MethodGet,
-			nil,
-		)
-
-		if err != nil || len(userServiceResponse.Errs) > 0 {
-			slog.Error(
-				"Error occurred while calling user service",
-				"errs",
-				userServiceResponse.Errs,
-			)
-			slog.Error("Error occurred while calling user service", "err", err)
-			userChannel <- nil
-			userServiceErrChan <- fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
-			return
-		}
-
-		if userServiceResponse.StatusCode != fiber.StatusOK {
-			slog.Error(
-				"User service returned non-200 status code",
-				"code",
-				userServiceResponse.StatusCode,
-			)
-			userChannel <- nil
-			userServiceErrChan <- fiber.NewError(userServiceResponse.StatusCode, string(userServiceResponse.Body))
-			return
-		}
-
-		err = json.Unmarshal(userServiceResponse.Body, &user)
+		userId, err := shared.GetUserIdFromToken(c)
 		if err != nil {
-			slog.Error("Error occurred while unmarshalling user response", "err", err)
+			userServiceErrChan <- err
 			userChannel <- nil
-			userServiceErrChan <- fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
+			return
+		}
+
+		getUserByIdReq := upb.GetUserByIdReq{Id: userId}
+
+		getUserByIdRes, err := (*o.UserService).GetUserById(c.Context(), &getUserByIdReq)
+		if err != nil {
+			st, ok := status.FromError(err)
+			if ok && st.Code() == codes.NotFound {
+				slog.Info("product not found", "product-id", orderRequest.ProductId)
+				userServiceErrChan <- fiber.NewError(fiber.StatusNotFound, st.Message())
+				userChannel <- nil
+				return
+			}
+
+			slog.Error("Error occurred while calling product service", "err", err)
+			userServiceErrChan <- err
+			userChannel <- nil
 			return
 		}
 
 		userServiceErrChan <- nil
-		userChannel <- &user
+		userChannel <- getUserByIdRes.GetUser()
 	}()
 
 	// get data product
-	productChannel := make(chan *Product, 1)
+	productChannel := make(chan *prpb.Product, 1)
 	go func() {
 		defer close(productChannel)
 
-		var response GetResponse[Product]
-		productServiceHost := os.Getenv("PRODUCT_SERVICE_HOST")
-		productServicePort := os.Getenv("PRODUCT_SERVICE_PORT")
-		url := fmt.Sprintf("/products/%d", orderRequest.ProductId)
-		productServiceResponse, err := shared.CallService(
-			productServiceHost,
-			productServicePort,
-			url,
-			fiber.MethodGet,
-			nil,
-		)
-
-		if err != nil || len(productServiceResponse.Errs) > 0 {
-			slog.Error(
-				"Error occurred while calling product service",
-				"errs",
-				productServiceResponse.Errs,
-			)
-			slog.Error("Error occurred while calling product service", "err", err)
-			productServiceErrChan <- fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
-			return
+		getProductByIdReq := prpb.GetProductByIdReq{
+			ProductId: int32(orderRequest.ProductId),
 		}
 
-		if productServiceResponse.StatusCode != fiber.StatusOK {
-
-			var errResp GetResponse[any]
-
-			err := json.Unmarshal(productServiceResponse.Body, &errResp)
-			if err != nil {
-				productServiceErrChan <- fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
+		getProductByIdRes, err := (*o.ProductService).GetProductById(c.Context(), &getProductByIdReq)
+		if err != nil {
+			st, ok := status.FromError(err)
+			if ok && st.Code() == codes.NotFound {
+				slog.Info("product not found", "product-id", orderRequest.ProductId)
+				productServiceErrChan <- fiber.NewError(fiber.StatusNotFound, "Product not found")
+				productChannel <- nil
 				return
 			}
 
-			slog.Error(
-				"Product service returned non-200 status code",
-				"code",
-				productServiceResponse.StatusCode,
-				"message",
-				errResp.Message,
-			)
-			productServiceErrChan <- fiber.NewError(productServiceResponse.StatusCode, errResp.Message)
-			return
-		}
-
-		err = json.Unmarshal(productServiceResponse.Body, &response)
-		if err != nil {
-			slog.Error("Error occurred while unmarshalling product response", "err", err)
-			productServiceErrChan <- fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
+			slog.Error("Error occurred while calling product service", "err", err)
+			productServiceErrChan <- err
+			productChannel <- nil
 			return
 		}
 
 		productServiceErrChan <- nil
-		productChannel <- &response.Data
+		productChannel <- getProductByIdRes.Product
 	}()
 
 	// wait for user and product service to finish
@@ -332,7 +288,7 @@ func (o *OrderService) handleCreateOrders(c *fiber.Ctx) error {
 
 	user = <-userChannel
 	if user != nil {
-		orderData.BuyerId = user.Id
+		orderData.BuyerId = int(user.Id)
 	}
 
 	if err = <-productServiceErrChan; err != nil {
@@ -340,12 +296,12 @@ func (o *OrderService) handleCreateOrders(c *fiber.Ctx) error {
 	}
 
 	product = <-productChannel
-	orderData.ProductId = product.Id
+	orderData.ProductId = int(product.Id)
 	orderData.ProductName = product.Name
-	orderData.TotalProductAmount = product.Price
+	orderData.TotalProductAmount = int(product.Price)
 
 	// set payment method
-	paymentMethod, err := getPaymentMethodDetails(orderRequest.PaymentMethod, product.Price)
+	paymentMethod, err := getPaymentMethodDetails(orderRequest.PaymentMethod, int(product.Price))
 	if err != nil {
 		slog.Error("Invalid Channel Code", "err", err)
 		return fiber.NewError(fiber.StatusBadRequest, err.Error())
@@ -358,7 +314,7 @@ func (o *OrderService) handleCreateOrders(c *fiber.Ctx) error {
 	paymentServiceErrChan := make(chan error, 1)
 	defer close(paymentServiceErrChan)
 	createPaymentResChan := make(chan *ppb.CreatePaymentRes, 1)
-	go func(p *Product, pm *Order) {
+	go func(pm *Order) {
 		defer close(createPaymentResChan)
 
 		// create payment
@@ -390,7 +346,7 @@ func (o *OrderService) handleCreateOrders(c *fiber.Ctx) error {
 
 		paymentServiceErrChan <- nil
 		createPaymentResChan <- createPaymentRes
-	}(product, paymentMethod)
+	}(paymentMethod)
 
 	if err = <-paymentServiceErrChan; err != nil {
 		return err
