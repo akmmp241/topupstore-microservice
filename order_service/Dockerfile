@@ -18,9 +18,11 @@ COPY order_service/go.mod order_service/go.sum ./
 COPY order_service/ .
 COPY shared/ /build/shared/
 COPY payment_proto/ /build/payment_proto/
+COPY product_proto/ /build/product_proto/
 
 RUN go mod edit -replace=github.com/akmmp241/topupstore-microservice/shared=/build/shared
 RUN go mod edit -replace=github.com/akmmp241/topupstore-microservice/payment-proto=/build/payment_proto
+RUN go mod edit -replace=github.com/akmmp241/topupstore-microservice/product-proto=/build/product_proto
 
 RUN go mod download
 RUN go build -o /out/build .
