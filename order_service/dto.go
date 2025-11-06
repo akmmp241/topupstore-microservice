@@ -28,6 +28,11 @@ type CreatePaymentResponse struct {
 	FailureCode     string `json:"failure_code"`
 }
 
+type OrderEvent struct {
+	EventTye string    `json:"event_type"`
+	Data     *OrderMsg `json:"data"`
+}
+
 type OrderMsg struct {
 	Id                 string    `json:"id"                   validate:"required"`
 	Status             string    `json:"status"               validate:"required"`
