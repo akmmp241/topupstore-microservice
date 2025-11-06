@@ -2,6 +2,18 @@ package main
 
 import "time"
 
+type BaseEvent struct {
+	EventType string `json:"event_type"`
+}
+
+type AuthEvent[T NewLoginMessage | NewRegistrationMessage | ForgotPasswordMessage] struct {
+	Data *T `json:"data"`
+}
+
+type OrderEvent struct {
+	Data *OrderMsg `json:"data"`
+}
+
 type SendMail struct {
 	To      string
 	Subject string

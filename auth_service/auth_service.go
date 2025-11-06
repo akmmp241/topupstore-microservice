@@ -20,6 +20,14 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+const AuthTopic = "auth-mail-service"
+
+const (
+	UserRegistration = "user-registration"
+	UserLogin        = "user-login"
+	ForgotPassword   = "forgot-password"
+)
+
 type AuthService struct {
 	Producer          *KafkaProducer
 	Validator         *validator.Validate
@@ -80,21 +88,24 @@ func (s *AuthService) handleRegister(c *fiber.Ctx) error {
 		return err
 	}
 
-	newRegistrationMsg := &NewRegistrationMessage{
-		Email: registerRequest.Email,
-		Name:  registerRequest.Name,
-		VerificationUrl: fmt.Sprintf(
-			"%s/api/auth/verify/%s",
-			os.Getenv("APP_URL"),
-			registerRequest.EmailVerificationToken,
-		),
+	baseEvent := AuthEvent[NewRegistrationMessage]{
+		EventTye: UserRegistration,
+		Data: &NewRegistrationMessage{
+			Email: registerRequest.Email,
+			Name:  registerRequest.Name,
+			VerificationUrl: fmt.Sprintf(
+				"%s/api/auth/verify/%s",
+				os.Getenv("APP_URL"),
+				registerRequest.EmailVerificationToken,
+			),
+		},
 	}
 
-	newRegistrationMsgBytes, err := json.Marshal(newRegistrationMsg)
+	newRegistrationMsgBytes, err := json.Marshal(baseEvent)
 
-	msg := [2]string{"user-registration", string(newRegistrationMsgBytes)}
+	msg := [2]string{"", string(newRegistrationMsgBytes)}
 
-	if err := s.Producer.Write(c.Context(), "user-registration", msg); err != nil {
+	if err := s.Producer.Write(c.Context(), AuthTopic, msg); err != nil {
 		slog.Error("Error occurred while sending message to Kafka", "err", err)
 	}
 
@@ -152,18 +163,22 @@ func (s *AuthService) Login(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
 	}
 
-	newLoginMsg := &NewLoginMessage{
-		Email:     user.GetEmail(),
-		Name:      user.GetName(),
-		LoginTime: time.Now(),
-		IpAddress: c.IP(),
-		Device:    c.Get("User-Agent"),
+	baseEvent := AuthEvent[NewLoginMessage]{
+		EventTye: UserLogin,
+		Data: &NewLoginMessage{
+			Email:     user.GetEmail(),
+			Name:      user.GetName(),
+			LoginTime: time.Now(),
+			IpAddress: c.IP(),
+			Device:    c.Get("User-Agent"),
+		},
 	}
-	newLoginMsgBytes, err := json.Marshal(newLoginMsg)
 
-	msg := [2]string{"new-login", string(newLoginMsgBytes)}
+	newLoginMsgBytes, err := json.Marshal(baseEvent)
 
-	err = s.Producer.Write(c.Context(), "user-login", msg)
+	msg := [2]string{"", string(newLoginMsgBytes)}
+
+	err = s.Producer.Write(c.Context(), AuthTopic, msg)
 	if err != nil {
 		slog.Error("Error occurred while sending message to Kafka", "err", err)
 	}
@@ -250,21 +265,24 @@ func (s *AuthService) handleForgotPassword(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
 	}
 
-	forgotPasswordMsg := &ForgotPasswordMessage{
-		Email:     user.GetEmail(),
-		Name:      user.GetName(),
-		ResetUrl:  fmt.Sprintf("%s/reset-password/%s", os.Getenv("APP_URL"), resetToken),
-		ExpiresAt: time.Now().Add(expiration),
+	baseEvent := AuthEvent[ForgotPasswordMessage]{
+		EventTye: ForgotPassword,
+		Data: &ForgotPasswordMessage{
+			Email:     user.GetEmail(),
+			Name:      user.GetName(),
+			ResetUrl:  fmt.Sprintf("%s/reset-password/%s", os.Getenv("APP_URL"), resetToken),
+			ExpiresAt: time.Now().Add(expiration),
+		},
 	}
 
-	forgotPasswordMsgBytes, err := json.Marshal(forgotPasswordMsg)
+	forgotPasswordMsgBytes, err := json.Marshal(baseEvent)
 	if err != nil {
 		slog.Error("Error occurred while marshalling message", "err", err)
 		return fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
 	}
 
-	msg := [2]string{"forgot-password", string(forgotPasswordMsgBytes)}
-	if err := s.Producer.Write(c.Context(), "forget-password", msg); err != nil {
+	msg := [2]string{"", string(forgotPasswordMsgBytes)}
+	if err := s.Producer.Write(c.Context(), AuthTopic, msg); err != nil {
 		slog.Error("Error occurred while sending message to Kafka", "err", err)
 	}
 

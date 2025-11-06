@@ -31,6 +31,14 @@ const (
 	QrisServiceCharge           float64 = 0.007
 )
 
+const OrderTopic = "order-mail-service"
+
+const (
+	NewOrder     = "new-order"
+	SuccessOrder = "order-succeeded"
+	FailedOrder  = "order-failed"
+)
+
 type OrderService struct {
 	DB             *sql.DB
 	Validate       *validator.Validate
@@ -399,24 +407,28 @@ func (o *OrderService) handleCreateOrders(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, "Failed to create order")
 	}
 
-	newOrderMsg := &OrderMsg{
-		Id:                 orderData.Id,
-		Status:             orderData.Status,
-		ProductId:          orderData.ProductId,
-		ProductName:        orderData.ProductName,
-		ProductPrice:       orderData.TotalProductAmount,
-		Destination:        orderData.Destination,
-		ServerId:           orderData.ServerId,
-		ChannelCode:        orderData.ChannelCode,
-		BuyerEmail:         orderData.BuyerEmail,
-		ServiceCharge:      orderData.ServiceCharge,
-		TotalProductAmount: orderData.TotalProductAmount,
-		TotalAmount:        orderData.TotalAmount,
-		CreatedAt:          orderData.CreatedAt,
+	baseMsg := &OrderEvent{
+		EventTye: NewOrder,
+		Data: &OrderMsg{
+			Id:                 orderData.Id,
+			Status:             orderData.Status,
+			ProductId:          orderData.ProductId,
+			ProductName:        orderData.ProductName,
+			ProductPrice:       orderData.TotalProductAmount,
+			Destination:        orderData.Destination,
+			ServerId:           orderData.ServerId,
+			ChannelCode:        orderData.ChannelCode,
+			BuyerEmail:         orderData.BuyerEmail,
+			ServiceCharge:      orderData.ServiceCharge,
+			TotalProductAmount: orderData.TotalProductAmount,
+			TotalAmount:        orderData.TotalAmount,
+			CreatedAt:          orderData.CreatedAt,
+		},
 	}
-	newOrderMsgJson, err := json.Marshal(newOrderMsg)
 
-	err = o.Producer.Write(o.Ctx, "new_order", [2]string{orderData.Id, string(newOrderMsgJson)})
+	newOrderMsgJson, err := json.Marshal(baseMsg)
+
+	err = o.Producer.Write(o.Ctx, OrderTopic, [2]string{orderData.Id, string(newOrderMsgJson)})
 	if err != nil {
 		slog.Error("Error occurred while sending new order event", "err", err)
 		return fiber.NewError(fiber.StatusInternalServerError, "Failed to send new order event")
@@ -509,26 +521,30 @@ func (o *OrderService) handleOrderSucceededWebhook(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
 	}
 
-	newOrderMsg := &OrderMsg{
-		Id:                 order.Id,
-		Status:             webhookRequest.Status,
-		ProductId:          order.ProductId,
-		ProductName:        order.ProductName,
-		ProductPrice:       order.TotalProductAmount,
-		Destination:        order.Destination,
-		ServerId:           order.ServerId,
-		BuyerEmail:         order.BuyerEmail,
-		ServiceCharge:      order.ServiceCharge,
-		TotalProductAmount: order.TotalProductAmount,
-		TotalAmount:        order.TotalAmount,
-		CreatedAt:          order.CreatedAt,
+	baseMsg := &OrderEvent{
+		EventTye: SuccessOrder,
+		Data: &OrderMsg{
+			Id:                 order.Id,
+			Status:             webhookRequest.Status,
+			ProductId:          order.ProductId,
+			ProductName:        order.ProductName,
+			ProductPrice:       order.TotalProductAmount,
+			Destination:        order.Destination,
+			ServerId:           order.ServerId,
+			BuyerEmail:         order.BuyerEmail,
+			ServiceCharge:      order.ServiceCharge,
+			TotalProductAmount: order.TotalProductAmount,
+			TotalAmount:        order.TotalAmount,
+			CreatedAt:          order.CreatedAt,
+		},
 	}
-	newOrderMsgJson, err := json.Marshal(newOrderMsg)
+
+	successOrderMsgByte, err := json.Marshal(baseMsg)
 
 	err = o.Producer.Write(
 		o.Ctx,
-		"order_succeeded",
-		[2]string{webhookRequest.Id, string(newOrderMsgJson)},
+		OrderTopic,
+		[2]string{webhookRequest.Id, string(successOrderMsgByte)},
 	)
 	if err != nil {
 		slog.Error("Error occurred while sending order succeeded event", "err", err)
@@ -603,26 +619,30 @@ func (o *OrderService) handleOrderFailedWebhook(c *fiber.Ctx) error {
 		return fiber.NewError(fiber.StatusInternalServerError, "Internal Server Error")
 	}
 
-	newOrderMsg := &OrderMsg{
-		Id:                 order.Id,
-		Status:             webhookRequest.Status,
-		FailureCode:        webhookRequest.FailureCode,
-		ProductId:          order.ProductId,
-		ProductName:        order.ProductName,
-		ProductPrice:       order.TotalProductAmount,
-		Destination:        order.Destination,
-		ServerId:           order.ServerId,
-		BuyerEmail:         order.BuyerEmail,
-		ServiceCharge:      order.ServiceCharge,
-		TotalProductAmount: order.TotalProductAmount,
-		TotalAmount:        order.TotalAmount,
-		CreatedAt:          order.CreatedAt,
+	baseMsg := &OrderEvent{
+		EventTye: FailedOrder,
+		Data: &OrderMsg{
+			Id:                 order.Id,
+			Status:             webhookRequest.Status,
+			FailureCode:        webhookRequest.FailureCode,
+			ProductId:          order.ProductId,
+			ProductName:        order.ProductName,
+			ProductPrice:       order.TotalProductAmount,
+			Destination:        order.Destination,
+			ServerId:           order.ServerId,
+			BuyerEmail:         order.BuyerEmail,
+			ServiceCharge:      order.ServiceCharge,
+			TotalProductAmount: order.TotalProductAmount,
+			TotalAmount:        order.TotalAmount,
+			CreatedAt:          order.CreatedAt,
+		},
 	}
-	newOrderMsgJson, err := json.Marshal(newOrderMsg)
+
+	newOrderMsgJson, err := json.Marshal(baseMsg)
 
 	err = o.Producer.Write(
 		o.Ctx,
-		"order_failed",
+		OrderTopic,
 		[2]string{webhookRequest.Id, string(newOrderMsgJson)},
 	)
 	if err != nil {

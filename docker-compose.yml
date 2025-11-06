@@ -73,6 +73,8 @@ services:
       - akmalstore_net
     env_file:
       - .env
+    depends_on:
+      - kafka
 
   product_service:
     build:

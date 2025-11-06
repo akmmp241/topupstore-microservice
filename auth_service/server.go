@@ -14,7 +14,7 @@ type AppServer struct {
 	server *fiber.App
 }
 
-func NewAppServer(producer *KafkaProducer) *AppServer {
+func NewAppServer() *AppServer {
 	validate := validator.New()
 
 	server := fiber.New(fiber.Config{
@@ -31,6 +31,12 @@ func NewAppServer(producer *KafkaProducer) *AppServer {
 	conn := shared.NewGrpcClientConn(target)
 
 	userServiceGrpc := upb.NewUserServiceClient(conn)
+
+	kafkaHost := os.Getenv("KAFKA_HOST")
+	kafkaPort := os.Getenv("KAFKA_PORT")
+	bootstrapServer := kafkaHost + ":" + kafkaPort
+
+	producer := NewKafkaProducer(bootstrapServer)
 
 	authService := NewAuthService(producer, validate, redisClient, &userServiceGrpc)
 	authService.RegisterRoutes(app)

@@ -38,6 +38,11 @@ type GetUserResponse struct {
 	Errors  any          `json:"errors"`
 }
 
+type AuthEvent[T NewLoginMessage | NewRegistrationMessage | ForgotPasswordMessage] struct {
+	EventTye string `json:"event_type"`
+	Data     *T     `json:"data"`
+}
+
 type NewLoginMessage struct {
 	Email     string    `json:"email"`
 	Name      string    `json:"name"`
