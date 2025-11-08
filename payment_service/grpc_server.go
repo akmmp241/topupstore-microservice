@@ -86,6 +86,8 @@ func (s *GrpcServer) CreatePayment(ctx context.Context, req *ppb.CreatePaymentRe
 	xenditHost := os.Getenv("XENDIT_API_URL")
 	paymentReqUrl := fmt.Sprintf("%s/v3/payment_requests", xenditHost)
 
+	startTime := time.Now()
+
 	agent := fiber.Post(paymentReqUrl).Timeout(15*time.Second).
 		Add("Authorization", fmt.Sprintf("Basic %s", xenditApiKeyBase64)).
 		Add("api-version", "2024-11-11").
@@ -129,6 +131,8 @@ func (s *GrpcServer) CreatePayment(ctx context.Context, req *ppb.CreatePaymentRe
 			return nil, status.Error(codes.AlreadyExists, errMsg.Message)
 		}
 	}
+
+	slog.Info("Payment request created from xendit", "duration", time.Since(startTime))
 
 	var paymentRequestResponse XenditPaymentRequestResponse
 	err := json.Unmarshal(respByte, &paymentRequestResponse)

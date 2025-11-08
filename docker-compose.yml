@@ -82,6 +82,7 @@ services:
       dockerfile: product_service/Dockerfile
     restart: always
     environment:
+      APP_ENV: ${APP_ENV}
       DB_NAME: ${MYSQL_DATABASE}
       DB_USER: ${MYSQL_USER}
       DB_PASSWORD: ${MYSQL_PASSWORD}
@@ -90,6 +91,8 @@ services:
       PRODUCT_SERVICE_HOST: ${PRODUCT_SERVICE_HOST}
       PRODUCT_SERVICE_PORT: ${PRODUCT_SERVICE_PORT}
       PRODUCT_SERVICE_GRPC_PORT: ${PRODUCT_SERVICE_GRPC_PORT}
+      INDEXER_SERVICE_GRPC_HOST: ${INDEXER_SERVICE_HOST}
+      INDEXER_SERVICE_GRPC_PORT: ${INDEXER_SERVICE_GRPC_PORT}
       SERVICE_JWT_SECRET_KEY: ${SERVICE_JWT_SECRET_KEY}
     networks:
       - akmalstore_net
@@ -149,6 +152,20 @@ services:
       SERVICE_JWT_SECRET_KEY: ${SERVICE_JWT_SECRET_KEY}
       XENDIT_API_KEY: ${XENDIT_API_KEY}
       XENDIT_API_URL: ${XENDIT_API_URL}
+    networks:
+      - akmalstore_net
+    env_file:
+      - .env
+
+  indexer_service:
+    build:
+      context: .
+      dockerfile: indexer_service/Dockerfile
+    restart: always
+    environment:
+      ES_HOST: ${ES_HOST}
+      ES_PORT: ${ES_PORT}
+      INDEXER_SERVICE_GRPC_PORT: ${INDEXER_SERVICE_GRPC_PORT}
     networks:
       - akmalstore_net
     env_file:
@@ -231,8 +248,36 @@ services:
       redis:
         condition: service_started
 
+  elasticsearch:
+    image: elasticsearch:8.13.4
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    environment:
+      - discovery.type=single-node
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+      - xpack.security.enabled=false
+      - xpack.security.http.ssl.enabled=false
+      - xpack.security.transport.ssl.enabled=false
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+    networks:
+      - akmalstore_net
+
+  kibana:
+    image: kibana:8.13.4
+    ports:
+      - "5601:5601"
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+    depends_on:
+      - elasticsearch
+    networks:
+      - akmalstore_net
+
 volumes:
   db_data:
+  es_data:
 
 networks:
   akmalstore_net:

@@ -19,9 +19,11 @@ COPY product_service/go.mod product_service/go.sum ./
 COPY product_service/ .
 COPY shared/ /build/shared/
 COPY product_proto/ /build/product_proto/
+COPY indexer_proto/ /build/indexer_proto/
 
 RUN go mod edit -replace=github.com/akmmp241/topupstore-microservice/shared=/build/shared
 RUN go mod edit -replace=github.com/akmmp241/topupstore-microservice/product-proto=/build/product_proto
+RUN go mod edit -replace=github.com/akmmp241/topupstore-microservice/indexer-proto=/build/indexer_proto
 
 RUN go mod download
 RUN go build -o /out/build .

@@ -4,21 +4,24 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"log/slog"
+	"strconv"
+
+	ipb "github.com/akmmp241/topupstore-microservice/indexer-proto/v1"
 	"github.com/akmmp241/topupstore-microservice/shared"
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
-	"log/slog"
-	"strconv"
 )
 
 type ProductService struct {
-	validate *validator.Validate
-	DB       *sql.DB
-	Ctx      context.Context
+	validate       *validator.Validate
+	DB             *sql.DB
+	Ctx            context.Context
+	IndexerService *ipb.IndexerServiceClient
 }
 
-func NewProductService(validate *validator.Validate, DB *sql.DB) *ProductService {
-	return &ProductService{validate: validate, DB: DB, Ctx: context.Background()}
+func NewProductService(validate *validator.Validate, DB *sql.DB, IndexService *ipb.IndexerServiceClient) *ProductService {
+	return &ProductService{validate: validate, DB: DB, Ctx: context.Background(), IndexerService: IndexService}
 }
 
 func (p *ProductService) RegisterRoutes(route fiber.Router) {
@@ -33,6 +36,8 @@ func (p *ProductService) RegisterRoutes(route fiber.Router) {
 	route.Get("/product-types/:id/products", p.handleGetProductsByProductTypeID)
 	route.Get("/products", p.handleGetProducts)
 	route.Get("/products/:id", p.handleGetProductByID)
+
+	route.Get("/products-index", shared.DevOnlyMiddleware, p.handleProductIndexingToES)
 }
 
 func (p *ProductService) handleGetCategories(c *fiber.Ctx) error {
@@ -574,5 +579,83 @@ func (p *ProductService) handleGetProductByID(c *fiber.Ctx) error {
 		"message": "Product retrieved successfully",
 		"data":    product,
 		"errors":  nil,
+	})
+}
+
+func (p *ProductService) handleProductIndexingToES(c *fiber.Ctx) error {
+	tx, err := p.DB.Begin()
+	if err != nil {
+		slog.Error("Failed to begin transaction", "error", err)
+		return err
+	}
+	defer shared.CommitOrRollback(tx, err)
+
+	stream, err := (*p.IndexerService).BulkIndexProducts(p.Ctx)
+	if err != nil {
+		slog.Error("Failed to bulk index products", "error", err)
+		return err
+	}
+
+	query := `
+		SELECT
+			p.id, p.name, p.image_url, p.price,
+			pt.id as type_id, pt.name as type_name,
+			o.id as operator_id, o.name as operator_name, o.slug as operator_slug, o.image_url as operator_image_url,
+			c.id as category_id, c.name as category_name
+		FROM products p
+			JOIN product_types pt ON p.product_type_id = pt.id
+			JOIN operators o ON pt.operator_id = o.id
+			JOIN categories c ON o.category_id = c.id;
+`
+
+	rows, err := p.DB.QueryContext(p.Ctx, query)
+	if err != nil {
+		slog.Error("Failed to query products", "error", err)
+		return err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var product ipb.Product
+
+		// for avoiding nil pointer dereference
+		product.ProductType = &ipb.ProductType{}
+		product.Operator = &ipb.Operator{}
+		product.Category = &ipb.Category{}
+
+		err = rows.Scan(
+			&product.Id, &product.Name, &product.ImageUrl, &product.Price,
+			&product.ProductType.Id, &product.ProductType.Name,
+			&product.Operator.Id, &product.Operator.Name, &product.Operator.Slug, &product.Operator.ImageUrl,
+			&product.Category.Id, &product.Category.Name,
+		)
+		if err != nil {
+			slog.Error("Failed to scan product row", "error", err)
+			return err
+		}
+
+		slog.Info("Indexing product to ES", "product", product)
+
+		if err := stream.Send(&product); err != nil {
+			slog.Error("Failed to send product to stream", "error", err)
+			return err
+		}
+	}
+
+	summary, err := stream.CloseAndRecv()
+	if err != nil {
+		slog.Error("Failed to close stream", "error", err)
+		return err
+	}
+
+	slog.Info("Indexing products to ES completed", "total-indexed", summary.TotalIndexed, "total-failed", summary.TotalFailed)
+
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+		"message": "Indexing products to ES completed",
+		"data": fiber.Map{
+			"total_indexed": summary.TotalIndexed,
+			"total_failed":  summary.TotalFailed,
+		},
+		"errors": nil,
 	})
 }
