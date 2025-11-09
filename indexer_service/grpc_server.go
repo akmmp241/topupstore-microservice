@@ -27,7 +27,7 @@ type GrpcServer struct {
 func (g *GrpcServer) BulkIndexProducts(stream ipb.IndexerService_BulkIndexProductsServer) error {
 	bulkIndexer, err := esutil.NewBulkIndexer(esutil.BulkIndexerConfig{
 		Client:        g.EsClient,
-		Index:         "products",
+		Index:         ProductIndex,
 		NumWorkers:    4,
 		FlushBytes:    1024 * 1024 * 5, // 5 MB
 		FlushInterval: 30 * time.Second,
@@ -102,19 +102,17 @@ func (g *GrpcServer) Start() {
 	}
 }
 
-func NewGrpcServer(listenAddr string) *GrpcServer {
+func NewGrpcServer(listenAddr string, esClient *ESClient) *GrpcServer {
 	listener, err := net.Listen("tcp", listenAddr)
 	if err != nil {
 		slog.Error("Error creating listener", "error", err)
 		panic(err)
 	}
 
-	esClient := initElasticsearch()
-
 	return &GrpcServer{
 		ListenAddr: listenAddr,
 		Listener:   listener,
 		Server:     grpc.NewServer(),
-		EsClient:   esClient,
+		EsClient:   esClient.Client,
 	}
 }

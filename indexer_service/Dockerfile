@@ -17,8 +17,10 @@ COPY indexer_service/go.mod indexer_service/go.sum ./
 # Copy the source code and build the app
 COPY indexer_service/ .
 COPY indexer_proto/ /build/indexer_proto/
+COPY shared/ /build/shared/
 
 RUN go mod edit -replace=github.com/akmmp241/topupstore-microservice/indexer-proto=/build/indexer_proto
+RUN go mod edit -replace=github.com/akmmp241/topupstore-microservice/shared=/build/shared
 
 RUN go mod download
 RUN go build -o /out/build .

@@ -1,0 +1,36 @@
+{
+  "mappings": {
+    "properties": {
+      "id": { "type": "keyword" },
+      "name": {
+        "type": "text",
+        "fields": { "keyword": { "type": "keyword" } }
+      },
+      "price": { "type": "double" },
+      "image_url": { "type": "keyword", "index": false },
+      "product_type": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "keyword" },
+          "name": { "type": "keyword" }
+        }
+      },
+      "operator": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "keyword" },
+          "name": { "type": "text" },
+          "slug": { "type": "keyword" },
+          "image_url": { "type": "keyword", "index": false }
+        }
+      },
+      "category": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "keyword" },
+          "name": { "type": "keyword" }
+        }
+      }
+    }
+  }
+}

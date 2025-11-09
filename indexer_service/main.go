@@ -5,5 +5,7 @@ import "os"
 func main() {
 	grpcPort := os.Getenv("INDEXER_SERVICE_GRPC_PORT")
 
-	NewGrpcServer(":" + grpcPort).Start()
+	esClient := NewElasticsearch()
+
+	NewGrpcServer(":"+grpcPort, esClient).Start()
 }
