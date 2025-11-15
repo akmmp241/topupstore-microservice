@@ -1,13 +1,46 @@
 {
+  "settings": {
+    "analysis": {
+      "analyzer": {
+        "product_search_analyzer": {
+          "tokenizer": "standard",
+          "filter": [
+            "lowercase",
+            "edge_ngram_filter"
+          ]
+        },
+        "product_index_analyzer": {
+          "tokenizer": "standard",
+          "filter": [
+            "lowercase"
+          ]
+        }
+      },
+      "filter": {
+        "edge_ngram_filter": {
+          "type": "edge_ngram",
+          "min_gram": 2,
+          "max_gram": 20
+        }
+      }
+    }
+  },
   "mappings": {
     "properties": {
       "id": { "type": "keyword" },
       "name": {
         "type": "text",
-        "fields": { "keyword": { "type": "keyword" } }
+        "fields": { "keyword": { "type": "keyword" } },
+        "analyzer": "product_search_analyzer",
+        "search_analyzer": "product_index_analyzer"
       },
       "price": { "type": "double" },
       "image_url": { "type": "keyword", "index": false },
+      "description": {
+        "type": "text",
+        "analyzer": "product_search_analyzer",
+        "search_analyzer": "product_index_analyzer"
+      },
       "product_type": {
         "type": "object",
         "properties": {
