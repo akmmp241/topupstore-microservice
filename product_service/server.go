@@ -12,11 +12,12 @@ import (
 )
 
 type AppServer struct {
-	server *fiber.App
-	db     *sql.DB
+	server  *fiber.App
+	db      *sql.DB
+	esClint *ESClient
 }
 
-func NewAppServer(db *sql.DB) *AppServer {
+func NewAppServer(db *sql.DB, esClient *ESClient) *AppServer {
 	validate := validator.New()
 
 	server := fiber.New(fiber.Config{
@@ -32,7 +33,7 @@ func NewAppServer(db *sql.DB) *AppServer {
 
 	indexerService := ipb.NewIndexerServiceClient(indexerServiceConn)
 
-	productService := NewProductService(validate, db, &indexerService)
+	productService := NewProductService(validate, db, &indexerService, esClient.Client)
 	productService.RegisterRoutes(app)
 
 	return &AppServer{

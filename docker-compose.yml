@@ -88,6 +88,8 @@ services:
       DB_PASSWORD: ${MYSQL_PASSWORD}
       DB_HOST: ${MYSQL_HOST}
       DB_PORT: ${MYSQL_PORT}
+      ES_HOST: ${ES_HOST}
+      ES_PORT: ${ES_PORT}
       PRODUCT_SERVICE_HOST: ${PRODUCT_SERVICE_HOST}
       PRODUCT_SERVICE_PORT: ${PRODUCT_SERVICE_PORT}
       PRODUCT_SERVICE_GRPC_PORT: ${PRODUCT_SERVICE_GRPC_PORT}
@@ -250,6 +252,8 @@ services:
 
   elasticsearch:
     image: elasticsearch:8.13.4
+    ports:
+      - "9200:9200"
     environment:
       - discovery.type=single-node
       - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
