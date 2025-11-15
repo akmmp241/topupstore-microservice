@@ -1,24 +1,36 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
+	"io"
+	"log/slog"
+	"math"
+	"strconv"
+
+	ipb "github.com/akmmp241/topupstore-microservice/indexer-proto/v1"
 	"github.com/akmmp241/topupstore-microservice/shared"
+	"github.com/elastic/go-elasticsearch/v8"
+	"github.com/elastic/go-elasticsearch/v8/esapi"
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
-	"log/slog"
-	"strconv"
 )
 
+type Map map[string]interface{}
+
 type ProductService struct {
-	validate *validator.Validate
-	DB       *sql.DB
-	Ctx      context.Context
+	validate       *validator.Validate
+	DB             *sql.DB
+	EsClient       *elasticsearch.Client
+	Ctx            context.Context
+	IndexerService *ipb.IndexerServiceClient
 }
 
-func NewProductService(validate *validator.Validate, DB *sql.DB) *ProductService {
-	return &ProductService{validate: validate, DB: DB, Ctx: context.Background()}
+func NewProductService(validate *validator.Validate, DB *sql.DB, IndexService *ipb.IndexerServiceClient, esClient *elasticsearch.Client) *ProductService {
+	return &ProductService{validate: validate, DB: DB, Ctx: context.Background(), IndexerService: IndexService, EsClient: esClient}
 }
 
 func (p *ProductService) RegisterRoutes(route fiber.Router) {
@@ -33,6 +45,8 @@ func (p *ProductService) RegisterRoutes(route fiber.Router) {
 	route.Get("/product-types/:id/products", p.handleGetProductsByProductTypeID)
 	route.Get("/products", p.handleGetProducts)
 	route.Get("/products/:id", p.handleGetProductByID)
+
+	route.Get("/products-index", shared.DevOnlyMiddleware, p.handleProductIndexingToES)
 }
 
 func (p *ProductService) handleGetCategories(c *fiber.Ctx) error {
@@ -477,63 +491,45 @@ func (p *ProductService) handleGetProductsByProductTypeID(c *fiber.Ctx) error {
 }
 
 func (p *ProductService) handleGetProducts(c *fiber.Ctx) error {
-	afterStr := c.Query("after")
-	limitStr := c.Query("limit")
+	query := c.Query("q", "")
+	pageStr := c.Query("page", "1")
+	sizeStr := c.Query("size", "10")
 
-	var afterID int
-	var err error
-	if afterStr != "" {
-		afterID, err = strconv.Atoi(afterStr)
-		if err != nil {
-			slog.Error("Invalid 'after' parameter", "error", err)
-			return fiber.NewError(fiber.StatusBadRequest, "Invalid 'after' parameter")
-		}
+	page, err := strconv.Atoi(pageStr)
+	if err != nil || page < 1 {
+		page = 1
 	}
 
-	limit, err := strconv.Atoi(limitStr)
-	if err != nil || limit < 1 || limit > 100 {
-		limit = 10
+	size, err := strconv.Atoi(sizeStr)
+	if err != nil || size < 1 || size > 100 {
+		size = 10
 	}
 
-	tx, err := p.DB.Begin()
+	from := (page - 1) * size
+
+	esRes, err := p.searchProducts(c.Context(), query, from, size)
 	if err != nil {
-		slog.Error("Failed to begin transaction", "error", err)
 		return err
 	}
-	defer shared.CommitOrRollback(tx, err)
 
-	query := "SELECT id, ref_id, product_type_id, name, description, image_url, created_at, updated_at FROM products WHERE id > ? ORDER BY id LIMIT ?"
-
-	rows, err := p.DB.QueryContext(p.Ctx, query, afterID, limit)
-	if err != nil {
-		slog.Error("Failed to query products", "error", err)
-		return err
-	}
-	defer rows.Close()
-
-	var products []Product
-	var lastID int
-	for rows.Next() {
-		var product Product
-		if err := rows.Scan(&product.Id, &product.RefId, &product.ProductTypeId, &product.Name, &product.Description, &product.ImageUrl, &product.CreatedAt, &product.UpdatedAt); err != nil {
-			slog.Error("Failed to scan product row", "error", err)
-			return err
-		}
-		products = append(products, product)
-		lastID = product.Id
+	var products []*ProductSearch
+	for _, hit := range esRes.Hits.Hits {
+		products = append(products, &hit.Source)
 	}
 
-	// Set the next page cursor
-	var nextCursor *int
-	if len(products) == limit {
-		nextCursor = &lastID
-	}
+	totalHits := esRes.Hits.Total.Value
+	totalPages := int(math.Ceil(float64(totalHits) / float64(size)))
 
 	return c.JSON(fiber.Map{
 		"message": "Products retrieved successfully",
 		"data": fiber.Map{
-			"products":    products,
-			"next_cursor": nextCursor,
+			"products": products,
+			"meta": fiber.Map{
+				"total_hits":   totalHits,
+				"total_pages":  totalPages,
+				"current_page": page,
+				"size":         size,
+			},
 		},
 		"errors": nil,
 	})
@@ -575,4 +571,133 @@ func (p *ProductService) handleGetProductByID(c *fiber.Ctx) error {
 		"data":    product,
 		"errors":  nil,
 	})
+}
+
+func (p *ProductService) handleProductIndexingToES(c *fiber.Ctx) error {
+	tx, err := p.DB.Begin()
+	if err != nil {
+		slog.Error("Failed to begin transaction", "error", err)
+		return err
+	}
+	defer shared.CommitOrRollback(tx, err)
+
+	stream, err := (*p.IndexerService).BulkIndexProducts(p.Ctx)
+	if err != nil {
+		slog.Error("Failed to bulk index products", "error", err)
+		return err
+	}
+
+	query := `
+		SELECT
+			p.id, p.name, p.image_url, p.price, p.description,
+			pt.id as type_id, pt.name as type_name,
+			o.id as operator_id, o.name as operator_name, o.slug as operator_slug, o.image_url as operator_image_url,
+			c.id as category_id, c.name as category_name
+		FROM products p
+			JOIN product_types pt ON p.product_type_id = pt.id
+			JOIN operators o ON pt.operator_id = o.id
+			JOIN categories c ON o.category_id = c.id;
+`
+
+	rows, err := p.DB.QueryContext(p.Ctx, query)
+	if err != nil {
+		slog.Error("Failed to query products", "error", err)
+		return err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var product ipb.Product
+
+		// for avoiding nil pointer dereference
+		product.ProductType = &ipb.ProductType{}
+		product.Operator = &ipb.Operator{}
+		product.Category = &ipb.Category{}
+
+		err = rows.Scan(
+			&product.Id, &product.Name, &product.ImageUrl, &product.Price, &product.Description,
+			&product.ProductType.Id, &product.ProductType.Name,
+			&product.Operator.Id, &product.Operator.Name, &product.Operator.Slug, &product.Operator.ImageUrl,
+			&product.Category.Id, &product.Category.Name,
+		)
+		if err != nil {
+			slog.Error("Failed to scan product row", "error", err)
+			return err
+		}
+
+		if err := stream.Send(&product); err != nil {
+			slog.Error("Failed to send product to stream", "error", err)
+			return err
+		}
+	}
+
+	summary, err := stream.CloseAndRecv()
+	if err != nil {
+		slog.Error("Failed to close stream", "error", err)
+		return err
+	}
+
+	slog.Info("Indexing products to ES completed", "total-indexed", summary.TotalIndexed, "total-failed", summary.TotalFailed)
+
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+		"message": "Indexing products to ES completed",
+		"data": fiber.Map{
+			"total_indexed": summary.TotalIndexed,
+			"total_failed":  summary.TotalFailed,
+		},
+		"errors": nil,
+	})
+}
+
+func (p *ProductService) searchProducts(ctx context.Context, query string, from, size int) (*EsResponse, error) {
+	var response *EsResponse
+	var reqReader io.Reader = nil
+	var searchQuery = Map{}
+
+	if query != "" {
+		searchQuery = Map{
+			"query": Map{
+				"multi_match": Map{
+					"query":     query,
+					"fields":    []string{"name", "description"},
+					"fuzziness": "AUTO",
+				},
+			},
+		}
+	}
+
+	searchQuery["from"] = from
+	searchQuery["size"] = size
+
+	reqBuf, err := json.Marshal(searchQuery)
+	if err != nil {
+		slog.Error("Error occurred while marshaling request", "error", err)
+		return nil, err
+	}
+
+	reqReader = bytes.NewReader(reqBuf)
+
+	searchReq := esapi.SearchRequest{
+		Index:          []string{"products"},
+		Body:           reqReader,
+		TrackTotalHits: true,
+	}
+
+	res, err := searchReq.Do(ctx, p.EsClient)
+	if err != nil {
+		slog.Error("Error occurred while searching products", "error", err)
+		return nil, err
+	}
+
+	if res.IsError() {
+		slog.Error("Error occurred while searching products", "error", res.String())
+		return nil, errors.New(res.String())
+	}
+
+	if err := json.NewDecoder(res.Body).Decode(&response); err != nil {
+		slog.Error("Error occurred while decoding response", "error", err)
+		return nil, err
+	}
+
+	return response, nil
 }

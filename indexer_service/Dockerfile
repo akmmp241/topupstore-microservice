@@ -12,18 +12,15 @@ RUN apk add --no-cache tzdata
 
 # Set working directory and copy Go modules
 WORKDIR /build
-COPY product_service/go.mod product_service/go.sum ./
-
+COPY indexer_service/go.mod indexer_service/go.sum ./
 
 # Copy the source code and build the app
-COPY product_service/ .
-COPY shared/ /build/shared/
-COPY product_proto/ /build/product_proto/
+COPY indexer_service/ .
 COPY indexer_proto/ /build/indexer_proto/
+COPY shared/ /build/shared/
 
-RUN go mod edit -replace=github.com/akmmp241/topupstore-microservice/shared=/build/shared
-RUN go mod edit -replace=github.com/akmmp241/topupstore-microservice/product-proto=/build/product_proto
 RUN go mod edit -replace=github.com/akmmp241/topupstore-microservice/indexer-proto=/build/indexer_proto
+RUN go mod edit -replace=github.com/akmmp241/topupstore-microservice/shared=/build/shared
 
 RUN go mod download
 RUN go build -o /out/build .
@@ -45,8 +42,6 @@ RUN touch .env
 
 # Copy the built binary from the builder stage
 COPY --from=builder /out/build /out/build
-
-EXPOSE 3000
 
 ENTRYPOINT ["/usr/bin/dumb-init", "--"]
 

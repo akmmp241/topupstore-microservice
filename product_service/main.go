@@ -18,7 +18,9 @@ func main() {
 
 	db := shared.GetConnection()
 
-	app := NewAppServer(db)
+	esClient := NewElasticsearch()
+
+	app := NewAppServer(db, esClient)
 	grpcApp := NewGrpcServer(":"+grpcPort, db)
 
 	go app.Run(port)

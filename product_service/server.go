@@ -5,17 +5,19 @@ import (
 	"log/slog"
 	"os"
 
+	ipb "github.com/akmmp241/topupstore-microservice/indexer-proto/v1"
 	"github.com/akmmp241/topupstore-microservice/shared"
 	"github.com/go-playground/validator/v10"
 	"github.com/gofiber/fiber/v2"
 )
 
 type AppServer struct {
-	server *fiber.App
-	db     *sql.DB
+	server  *fiber.App
+	db      *sql.DB
+	esClint *ESClient
 }
 
-func NewAppServer(db *sql.DB) *AppServer {
+func NewAppServer(db *sql.DB, esClient *ESClient) *AppServer {
 	validate := validator.New()
 
 	server := fiber.New(fiber.Config{
@@ -24,7 +26,14 @@ func NewAppServer(db *sql.DB) *AppServer {
 
 	app := server.Group("/api")
 
-	productService := NewProductService(validate, db)
+	indexerServiceGrpcHost := os.Getenv("INDEXER_SERVICE_GRPC_HOST")
+	indexerServiceGrpcPort := os.Getenv("INDEXER_SERVICE_GRPC_PORT")
+	indexerServiceTarget := indexerServiceGrpcHost + ":" + indexerServiceGrpcPort
+	indexerServiceConn := shared.NewGrpcClientConn(indexerServiceTarget)
+
+	indexerService := ipb.NewIndexerServiceClient(indexerServiceConn)
+
+	productService := NewProductService(validate, db, &indexerService, esClient.Client)
 	productService.RegisterRoutes(app)
 
 	return &AppServer{

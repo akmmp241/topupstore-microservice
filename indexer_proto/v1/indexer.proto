@@ -1,0 +1,43 @@
+syntax = "proto3";
+
+package indexer.v1;
+
+option go_package = "github.com/akmmp241/topupstore-microservice/indexer-proto/v1;ipb";
+
+service IndexerService {
+  rpc BulkIndexProducts(stream Product) returns (BulkIndexSummary);
+}
+
+message Category {
+  int32 id = 1;
+  string name = 2;
+}
+
+message Operator {
+  int32 id = 1;
+  string name = 2;
+  string slug = 3;
+  string image_url = 4;
+}
+
+message ProductType {
+  int32 id = 1;
+  string name = 2;
+}
+
+message Product {
+  int32 id = 1;
+  string name = 2;
+  int32 price = 3;
+  string image_url = 4;
+  string description = 5;
+
+  Category category = 6;
+  Operator operator = 7;
+  ProductType product_type = 8;
+}
+
+message BulkIndexSummary {
+  uint64 total_indexed = 1;
+  uint64 total_failed = 2;
+}
