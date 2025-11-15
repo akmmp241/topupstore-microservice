@@ -624,7 +624,7 @@ func (p *ProductService) handleProductIndexingToES(c *fiber.Ctx) error {
 		product.Category = &ipb.Category{}
 
 		err = rows.Scan(
-			&product.Id, &product.Name, &product.ImageUrl, &product.Price,
+			&product.Id, &product.Name, &product.ImageUrl, &product.Price, &product.Description,
 			&product.ProductType.Id, &product.ProductType.Name,
 			&product.Operator.Id, &product.Operator.Name, &product.Operator.Slug, &product.Operator.ImageUrl,
 			&product.Category.Id, &product.Category.Name,
@@ -633,8 +633,6 @@ func (p *ProductService) handleProductIndexingToES(c *fiber.Ctx) error {
 			slog.Error("Failed to scan product row", "error", err)
 			return err
 		}
-
-		slog.Info("Indexing product to ES", "product", product)
 
 		if err := stream.Send(&product); err != nil {
 			slog.Error("Failed to send product to stream", "error", err)

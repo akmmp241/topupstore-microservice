@@ -199,9 +199,10 @@ type Product struct {
 	Name          string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
 	Price         int32                  `protobuf:"varint,3,opt,name=price,proto3" json:"price,omitempty"`
 	ImageUrl      string                 `protobuf:"bytes,4,opt,name=image_url,json=imageUrl,proto3" json:"image_url,omitempty"`
-	Category      *Category              `protobuf:"bytes,5,opt,name=category,proto3" json:"category,omitempty"`
-	Operator      *Operator              `protobuf:"bytes,6,opt,name=operator,proto3" json:"operator,omitempty"`
-	ProductType   *ProductType           `protobuf:"bytes,7,opt,name=product_type,json=productType,proto3" json:"product_type,omitempty"`
+	Description   string                 `protobuf:"bytes,5,opt,name=description,proto3" json:"description,omitempty"`
+	Category      *Category              `protobuf:"bytes,6,opt,name=category,proto3" json:"category,omitempty"`
+	Operator      *Operator              `protobuf:"bytes,7,opt,name=operator,proto3" json:"operator,omitempty"`
+	ProductType   *ProductType           `protobuf:"bytes,8,opt,name=product_type,json=productType,proto3" json:"product_type,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -260,6 +261,13 @@ func (x *Product) GetPrice() int32 {
 func (x *Product) GetImageUrl() string {
 	if x != nil {
 		return x.ImageUrl
+	}
+	return ""
+}
+
+func (x *Product) GetDescription() string {
+	if x != nil {
+		return x.Description
 	}
 	return ""
 }
@@ -353,15 +361,16 @@ const file_indexer_proto_rawDesc = "" +
 	"\timage_url\x18\x04 \x01(\tR\bimageUrl\"1\n" +
 	"\vProductType\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x05R\x02id\x12\x12\n" +
-	"\x04name\x18\x02 \x01(\tR\x04name\"\x80\x02\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\"\xa2\x02\n" +
 	"\aProduct\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\x05R\x02id\x12\x12\n" +
 	"\x04name\x18\x02 \x01(\tR\x04name\x12\x14\n" +
 	"\x05price\x18\x03 \x01(\x05R\x05price\x12\x1b\n" +
-	"\timage_url\x18\x04 \x01(\tR\bimageUrl\x120\n" +
-	"\bcategory\x18\x05 \x01(\v2\x14.indexer.v1.CategoryR\bcategory\x120\n" +
-	"\boperator\x18\x06 \x01(\v2\x14.indexer.v1.OperatorR\boperator\x12:\n" +
-	"\fproduct_type\x18\a \x01(\v2\x17.indexer.v1.ProductTypeR\vproductType\"Z\n" +
+	"\timage_url\x18\x04 \x01(\tR\bimageUrl\x12 \n" +
+	"\vdescription\x18\x05 \x01(\tR\vdescription\x120\n" +
+	"\bcategory\x18\x06 \x01(\v2\x14.indexer.v1.CategoryR\bcategory\x120\n" +
+	"\boperator\x18\a \x01(\v2\x14.indexer.v1.OperatorR\boperator\x12:\n" +
+	"\fproduct_type\x18\b \x01(\v2\x17.indexer.v1.ProductTypeR\vproductType\"Z\n" +
 	"\x10BulkIndexSummary\x12#\n" +
 	"\rtotal_indexed\x18\x01 \x01(\x04R\ftotalIndexed\x12!\n" +
 	"\ftotal_failed\x18\x02 \x01(\x04R\vtotalFailed2Z\n" +
